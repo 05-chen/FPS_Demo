@@ -271,6 +271,43 @@ public class PlayerHealth : NetworkBehaviour
     }
 
     /// <summary>
+    /// 爆头 / 假人镜面反弹等正式即时死亡入口（不依赖 Alt+F9 调试门闩）。
+    /// 会走 EnterDeadState → CombatStatusUI 黑屏读秒，与放弃救援一致。
+    /// </summary>
+    public void RequestInstantKill()
+    {
+        if (IsDead)
+        {
+            return;
+        }
+
+        if (!HasDamageAuthority)
+        {
+            if (IsSpawned && IsOwner)
+            {
+                RequestInstantKillServerRpc();
+            }
+
+            return;
+        }
+
+        currentHealth.Value = 0;
+        EnterDeadState();
+    }
+
+    [ServerRpc]
+    void RequestInstantKillServerRpc()
+    {
+        if (IsDead)
+        {
+            return;
+        }
+
+        currentHealth.Value = 0;
+        EnterDeadState();
+    }
+
+    /// <summary>
     /// 服务器复活：回血、恢复控制。传送由 SpawnManager / Owner TeleportToSpawn 完成。
     /// </summary>
     public void Revive()

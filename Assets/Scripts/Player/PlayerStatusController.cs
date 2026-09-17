@@ -143,17 +143,15 @@ namespace Player
 
             if (newInjury == InjuryState.DBNO_Torso)
             {
+                // 躯干 → 倒地 HUD（与正式受击一致，不依赖调试门闩）
                 _playerHealth?.RequestEnterDowned();
                 return;
             }
 
             if (newInjury == InjuryState.InstanceDeath_Head)
             {
-                if (DebugCommandGate.IsEnabled)
-                {
-                    _playerHealth?.DebugForceKill();
-                }
-
+                // 爆头 → 正式死亡黑屏读秒（假人镜面反弹 / F5 共用；F5 仍由上方 Alt+F9 门闩拦截）
+                _playerHealth?.RequestInstantKill();
                 return;
             }
 
