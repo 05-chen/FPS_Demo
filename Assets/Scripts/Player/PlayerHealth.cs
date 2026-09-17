@@ -172,13 +172,17 @@ public class PlayerHealth : NetworkBehaviour
         if (!HasDamageAuthority) return;
         if (IsDead) return;
 
+        // 爆头：无视剩余 HP，立即进入 Dead（黑屏读秒）。
+        // 旧逻辑先扣 hitscanDamage(20)，HP>0 就 return，导致「打中头却不秒杀」。
+        if (instantKill)
+        {
+            currentHealth.Value = 0;
+            EnterDeadState();
+            return;
+        }
+
         if (IsDowned)
         {
-            if (instantKill)
-            {
-                EnterDeadState();
-            }
-
             return;
         }
 
@@ -188,14 +192,7 @@ public class PlayerHealth : NetworkBehaviour
             return;
         }
 
-        if (instantKill)
-        {
-            EnterDeadState();
-        }
-        else
-        {
-            EnterDownedState();
-        }
+        EnterDownedState();
     }
 
     public void KillFromBleedOut()
