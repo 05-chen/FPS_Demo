@@ -185,7 +185,8 @@ public class PlayerWeapon : NetworkBehaviour
             HitscanHits,
             fireRange,
             hitLayers,
-            QueryTriggerInteraction.Ignore);
+            // 远端玩家关掉了 CharacterController，部位盒是 Trigger；Ignore 会导致房主打不中客户端。
+            QueryTriggerInteraction.Collide);
 
         int valid = 0;
         for (int i = 0; i < hitCount; i++)

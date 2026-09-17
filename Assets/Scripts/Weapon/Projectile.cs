@@ -132,7 +132,8 @@ public class Projectile : NetworkBehaviour
             SweepHits,
             distance,
             hitLayers,
-            QueryTriggerInteraction.Ignore);
+            // 与 Hitscan 一致：必须打到 Trigger 部位盒，否则 Owner 权威下远端 CC 关闭时打不中。
+            QueryTriggerInteraction.Collide);
 
         int valid = 0;
         for (int i = 0; i < count; i++)

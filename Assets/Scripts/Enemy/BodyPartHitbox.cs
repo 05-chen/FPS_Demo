@@ -65,6 +65,13 @@ public class BodyPartHitbox : MonoBehaviour
             BodyPartHitbox hitbox = col.GetComponentInParent<BodyPartHitbox>();
             if (hitbox == null)
             {
+                // 战区 / 出生区等 Trigger 不是遮挡物：穿透继续找部位盒。
+                // 墙/地面等实心碰撞体才作为范围哨兵终止，避免把身后别人的头算进来。
+                if (col.isTrigger)
+                {
+                    continue;
+                }
+
                 break;
             }
 

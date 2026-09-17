@@ -40,6 +40,7 @@ public sealed class PlayerAnimationManager : MonoBehaviour
     Vector3 _calibratedEyeOffset;
     int _boneSearchAttempts;
     bool _cameraParentWarned;
+    bool _animNetBound;
 
     void Reset()
     {
@@ -67,6 +68,7 @@ public sealed class PlayerAnimationManager : MonoBehaviour
     void OnDisable()
     {
         UnsubscribeWeapon();
+        UnbindAnimNetworkCallbacks();
         if (playerController != null)
         {
             playerController.CameraPositionControlledExternally = false;
@@ -96,20 +98,33 @@ public sealed class PlayerAnimationManager : MonoBehaviour
 
     void LateUpdate()
     {
-        if (playerController == null || !ShouldDriveLocalPresentation())
+        if (playerController == null)
         {
             return;
         }
 
-        SyncAnimatorParameters();
-        SyncCameraPositionToHead();
+        BindAnimNetworkCallbacks();
+
+        if (ShouldDriveLocalPresentation())
+        {
+            SyncAnimatorParametersFromLocal();
+            PublishLocalAnimationState();
+            SyncCameraPositionToHead();
+            return;
+        }
+
+        // 远端：用 Owner 同步过来的参数驱动 Animator，否则会一直卡在 Idle。
+        if (playerController.IsSpawned)
+        {
+            SyncAnimatorParametersFromNetwork();
+        }
     }
 
     /// <summary>
     /// 把移动 / 接地 / ADS / Jump 写进 Animator。
     /// IsADS 只读 WeaponADS 的右键状态，开火路径绝不改写它，保证 Fire 与 ADS 可并行。
     /// </summary>
-    void SyncAnimatorParameters()
+    void SyncAnimatorParametersFromLocal()
     {
         if (animator == null)
         {
@@ -133,7 +148,98 @@ public sealed class PlayerAnimationManager : MonoBehaviour
         if (playerController.JumpPressedThisFrame)
         {
             animator.SetTrigger(JumpHash);
+            playerController.PublishJumpAnimation();
         }
+    }
+
+    void SyncAnimatorParametersFromNetwork()
+    {
+        if (animator == null)
+        {
+            return;
+        }
+
+        Vector2 move = playerController.SyncedAnimMove;
+        if (move.sqrMagnitude > 1f)
+        {
+            move.Normalize();
+        }
+
+        animator.SetFloat(InputXHash, move.x, MoveDampTime, Time.deltaTime);
+        animator.SetFloat(InputYHash, move.y, MoveDampTime, Time.deltaTime);
+        animator.SetBool(IsGroundHash, playerController.SyncedAnimGrounded);
+        animator.SetBool(IsAdsHash, playerController.SyncedAnimAds);
+    }
+
+    void PublishLocalAnimationState()
+    {
+        bool isAiming = weaponADS != null && weaponADS.IsAiming;
+        Vector2 move = playerController.MoveInput;
+        if (move.sqrMagnitude > 1f)
+        {
+            move.Normalize();
+        }
+
+        playerController.PublishAnimationState(move, playerController.IsGrounded, isAiming);
+    }
+
+    void BindAnimNetworkCallbacks()
+    {
+        if (_animNetBound || playerController == null || !playerController.IsSpawned)
+        {
+            return;
+        }
+
+        playerController.FireAnimSeq.OnValueChanged += HandleFireSeqChanged;
+        playerController.JumpAnimSeq.OnValueChanged += HandleJumpSeqChanged;
+        playerController.ReloadAnimSeq.OnValueChanged += HandleReloadSeqChanged;
+        _animNetBound = true;
+    }
+
+    void UnbindAnimNetworkCallbacks()
+    {
+        if (!_animNetBound || playerController == null)
+        {
+            return;
+        }
+
+        playerController.FireAnimSeq.OnValueChanged -= HandleFireSeqChanged;
+        playerController.JumpAnimSeq.OnValueChanged -= HandleJumpSeqChanged;
+        playerController.ReloadAnimSeq.OnValueChanged -= HandleReloadSeqChanged;
+        _animNetBound = false;
+    }
+
+    void HandleFireSeqChanged(byte previous, byte current)
+    {
+        if (ShouldDriveLocalPresentation() || previous == current)
+        {
+            return;
+        }
+
+        OnFireTriggered();
+    }
+
+    void HandleJumpSeqChanged(byte previous, byte current)
+    {
+        if (ShouldDriveLocalPresentation() || previous == current)
+        {
+            return;
+        }
+
+        if (animator != null)
+        {
+            animator.SetTrigger(JumpHash);
+        }
+    }
+
+    void HandleReloadSeqChanged(byte previous, byte current)
+    {
+        if (ShouldDriveLocalPresentation() || previous == current)
+        {
+            return;
+        }
+
+        OnReloadTriggered();
     }
 
     /// <summary>
@@ -189,6 +295,10 @@ public sealed class PlayerAnimationManager : MonoBehaviour
         }
 
         animator.SetTrigger(FireHash);
+        if (ShouldDriveLocalPresentation())
+        {
+            playerController?.PublishFireAnimation();
+        }
     }
 
     /// <summary>供外部轻量调用：拉起 UpperBody 层的 Reload 触发器。</summary>
@@ -200,6 +310,10 @@ public sealed class PlayerAnimationManager : MonoBehaviour
         }
 
         animator.SetTrigger(ReloadHash);
+        if (ShouldDriveLocalPresentation())
+        {
+            playerController?.PublishReloadAnimation();
+        }
     }
 
     void AutoBind()

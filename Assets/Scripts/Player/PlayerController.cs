@@ -115,6 +115,47 @@ public sealed class PlayerController : NetworkBehaviour
         NetworkVariableReadPermission.Everyone,
         NetworkVariableWritePermission.Server);
 
+    /// <summary>Owner 写入，供远端驱动 Animator（移动混合树）。</summary>
+    readonly NetworkVariable<Vector2> _syncedAnimMove = new NetworkVariable<Vector2>(
+        Vector2.zero,
+        NetworkVariableReadPermission.Everyone,
+        NetworkVariableWritePermission.Owner);
+
+    readonly NetworkVariable<bool> _syncedAnimGrounded = new NetworkVariable<bool>(
+        true,
+        NetworkVariableReadPermission.Everyone,
+        NetworkVariableWritePermission.Owner);
+
+    readonly NetworkVariable<bool> _syncedAnimAds = new NetworkVariable<bool>(
+        false,
+        NetworkVariableReadPermission.Everyone,
+        NetworkVariableWritePermission.Owner);
+
+    readonly NetworkVariable<byte> _syncedFireSeq = new NetworkVariable<byte>(
+        0,
+        NetworkVariableReadPermission.Everyone,
+        NetworkVariableWritePermission.Owner);
+
+    readonly NetworkVariable<byte> _syncedJumpSeq = new NetworkVariable<byte>(
+        0,
+        NetworkVariableReadPermission.Everyone,
+        NetworkVariableWritePermission.Owner);
+
+    readonly NetworkVariable<byte> _syncedReloadSeq = new NetworkVariable<byte>(
+        0,
+        NetworkVariableReadPermission.Everyone,
+        NetworkVariableWritePermission.Owner);
+
+    public Vector2 SyncedAnimMove => IsOwner || !IsSpawned ? _moveInput : _syncedAnimMove.Value;
+    public bool SyncedAnimGrounded => IsOwner || !IsSpawned ? IsGrounded : _syncedAnimGrounded.Value;
+    public bool SyncedAnimAds => IsOwner || !IsSpawned
+        ? (weaponADS != null && weaponADS.IsAiming)
+        : _syncedAnimAds.Value;
+
+    public NetworkVariable<byte> FireAnimSeq => _syncedFireSeq;
+    public NetworkVariable<byte> JumpAnimSeq => _syncedJumpSeq;
+    public NetworkVariable<byte> ReloadAnimSeq => _syncedReloadSeq;
+
     MaterialPropertyBlock _propertyBlock;
 
     CharacterController _characterController;
@@ -131,6 +172,10 @@ public sealed class PlayerController : NetworkBehaviour
     bool _wasMoving;
     Vector2 _moveInput;
     bool _jumpPressedThisFrame;
+    /// <summary>最近一次由 SpawnManager / 选边 RPC 写入的出生位姿；虚空回收优先用它。</summary>
+    Vector3 _lastSpawnPosition;
+    Quaternion _lastSpawnRotation = Quaternion.identity;
+    bool _hasLastSpawnPose;
 
     public static PlayerController FindLocalOwnedPlayer()
     {
@@ -289,7 +334,9 @@ public sealed class PlayerController : NetworkBehaviour
         }
 
         _waitingForTeamAck = false;
-        MoveToSpawnPoint();
+        // 出生点由 SpawnManager 区域 + NotifyPlayerSpawnedClientRpc 决定。
+        // 禁止在此调用 MoveToSpawnPoint：预制体里的 red/blueSpawnPosition 是旧练习坐标，
+        // 会在阵营 NV 晚于出生 RPC 到达时把双方都拽回红方一侧。
         TeamConfirmed?.Invoke(Team);
     }
 
@@ -299,10 +346,18 @@ public sealed class PlayerController : NetworkBehaviour
         gameObject.name = Team == TeamId.Red ? "Player_Red" : Team == TeamId.Blue ? "Player_Blue" : "Player";
     }
 
+    /// <summary>
+    /// 仅用于无 SpawnManager 的兜底（旧练习点）。正式对局请走 SpawnManager 区域。
+    /// </summary>
     void MoveToSpawnPoint()
     {
-        Vector3 spawn = Team == TeamId.Blue ? blueSpawnPosition : redSpawnPosition;
-        TeleportCharacter(SnapToGround(spawn));
+        if (!TryResolveTeamSpawnPose(Team, out Vector3 spawn, out Quaternion rotation))
+        {
+            spawn = Team == TeamId.Blue ? blueSpawnPosition : redSpawnPosition;
+            rotation = transform.rotation;
+        }
+
+        TeleportToSpawn(spawn, rotation);
     }
 
     void Update()
@@ -579,6 +634,10 @@ public sealed class PlayerController : NetworkBehaviour
     public void TeleportToSpawn(Vector3 position, Quaternion rotation)
     {
         Vector3 grounded = SnapToGround(position);
+        _lastSpawnPosition = grounded;
+        _lastSpawnRotation = rotation;
+        _hasLastSpawnPose = true;
+
         bool wasEnabled = _characterController != null && _characterController.enabled;
         if (_characterController != null)
         {
@@ -655,8 +714,15 @@ public sealed class PlayerController : NetworkBehaviour
         }
 
         GameLog.Warn("Player", "检测到掉入虚空，拉回出生点。");
-        Vector3 spawn = Team == TeamId.Blue ? blueSpawnPosition : redSpawnPosition;
-        TeleportCharacter(SnapToGround(spawn));
+        if (!TryResolveTeamSpawnPose(ResolveTeam(), out Vector3 spawn, out Quaternion rotation))
+        {
+            spawn = _hasLastSpawnPose
+                ? _lastSpawnPosition
+                : (Team == TeamId.Blue ? blueSpawnPosition : redSpawnPosition);
+            rotation = _hasLastSpawnPose ? _lastSpawnRotation : transform.rotation;
+        }
+
+        TeleportToSpawn(spawn, rotation);
     }
 
     void TeleportCharacter(Vector3 position)
@@ -751,8 +817,41 @@ public sealed class PlayerController : NetworkBehaviour
     public void TeleportToTeamSpawn(TeamId team)
     {
         TeamId resolved = TeamIdUtil.IsPlayable(team) ? team : ResolveTeam();
-        Vector3 spawn = resolved == TeamId.Blue ? blueSpawnPosition : redSpawnPosition;
-        TeleportToSpawn(spawn, transform.rotation);
+        if (!TryResolveTeamSpawnPose(resolved, out Vector3 spawn, out Quaternion rotation))
+        {
+            spawn = resolved == TeamId.Blue ? blueSpawnPosition : redSpawnPosition;
+            rotation = transform.rotation;
+        }
+
+        TeleportToSpawn(spawn, rotation);
+    }
+
+    /// <summary>
+    /// 优先向场景 SpawnManager 要阵营区域点；没有区域时再退回缓存 / 预制体旧坐标。
+    /// </summary>
+    bool TryResolveTeamSpawnPose(TeamId team, out Vector3 position, out Quaternion rotation)
+    {
+        position = default;
+        rotation = Quaternion.identity;
+        if (!TeamIdUtil.IsPlayable(team))
+        {
+            return false;
+        }
+
+        if (Managers.SpawnManager.Instance != null &&
+            Managers.SpawnManager.Instance.TryGetSpawnPose(team, out position, out rotation))
+        {
+            return true;
+        }
+
+        if (_hasLastSpawnPose && ResolveTeam() == team)
+        {
+            position = _lastSpawnPosition;
+            rotation = _lastSpawnRotation;
+            return true;
+        }
+
+        return false;
     }
 
     public void SetControlled(bool controlled)
@@ -775,6 +874,60 @@ public sealed class PlayerController : NetworkBehaviour
         {
             ResetWeaponAdsToHipfire();
         }
+    }
+
+    /// <summary>Owner 每帧把动画相关状态写入 NetworkVariable，远端据此播动作。</summary>
+    public void PublishAnimationState(Vector2 move, bool grounded, bool isAds)
+    {
+        if (!IsSpawned || !IsOwner)
+        {
+            return;
+        }
+
+        if (_syncedAnimMove.Value != move)
+        {
+            _syncedAnimMove.Value = move;
+        }
+
+        if (_syncedAnimGrounded.Value != grounded)
+        {
+            _syncedAnimGrounded.Value = grounded;
+        }
+
+        if (_syncedAnimAds.Value != isAds)
+        {
+            _syncedAnimAds.Value = isAds;
+        }
+    }
+
+    public void PublishFireAnimation()
+    {
+        if (!IsSpawned || !IsOwner)
+        {
+            return;
+        }
+
+        _syncedFireSeq.Value++;
+    }
+
+    public void PublishJumpAnimation()
+    {
+        if (!IsSpawned || !IsOwner)
+        {
+            return;
+        }
+
+        _syncedJumpSeq.Value++;
+    }
+
+    public void PublishReloadAnimation()
+    {
+        if (!IsSpawned || !IsOwner)
+        {
+            return;
+        }
+
+        _syncedReloadSeq.Value++;
     }
 
     void OnGameplayGateChanged(bool blocked)

@@ -230,6 +230,24 @@ namespace Managers
         }
 
         /// <summary>
+        /// 供 PlayerController 虚空回收 / 阵营传送：从场景区域取点，避免预制体旧坐标。
+        /// </summary>
+        public bool TryGetSpawnPose(TeamId team, out Vector3 position, out Quaternion rotation)
+        {
+            position = default;
+            rotation = Quaternion.identity;
+            BoxCollider zone = GetRandomSpawnZone(team);
+            if (zone == null)
+            {
+                return false;
+            }
+
+            position = GetRandomPointInZone(zone);
+            rotation = zone.transform.rotation;
+            return true;
+        }
+
+        /// <summary>
         /// 核心算法：在指定的 BoxCollider 区域内随机生成无碰撞卡嵌的安全坐标
         /// </summary>
         private Vector3 GetRandomPointInZone(BoxCollider zoneCollider)
