@@ -34,6 +34,13 @@ public class BodyPartHitbox : MonoBehaviour
     }
 
     /// <summary>
+    /// 战区圈、出生区等 Trigger 没有网格，射线打到会在半空生成弹孔。
+    /// 只保留部位 Hitbox；墙和地面不是 Trigger，不受影响。
+    /// </summary>
+    public static bool IsInvisibleTrigger(Collider collider) =>
+        collider != null && collider.isTrigger && collider.GetComponentInParent<BodyPartHitbox>() == null;
+
+    /// <summary>
     /// 沿射线穿过假人时，躯干盒往往会挡住头/手脚。按距离排序后穿过所有 Hitbox，优先取更精确的部位。
     /// </summary>
     public static BodyPartHitbox PickBestAlongRay(RaycastHit[] hits, int count)

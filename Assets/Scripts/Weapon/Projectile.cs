@@ -138,7 +138,7 @@ public class Projectile : NetworkBehaviour
         int valid = 0;
         for (int i = 0; i < count; i++)
         {
-            if (ShouldIgnoreCollider(SweepHits[i].collider))
+            if (ShouldIgnoreCollider(SweepHits[i].collider) || BodyPartHitbox.IsInvisibleTrigger(SweepHits[i].collider))
             {
                 continue;
             }

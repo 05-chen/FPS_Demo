@@ -233,7 +233,8 @@ public sealed class PlayerController : NetworkBehaviour
         bool isLocalPlayer = IsOwner;
         if (_characterController != null)
         {
-            _characterController.enabled = isLocalPlayer && !_deadPresentation;
+            // 战区只认 CharacterController。客户端在主机上 IsOwner=false，若关掉胶囊，蓝方进圈永远不计人数。
+            _characterController.enabled = ShouldEnableCharacterController();
         }
 
         if (isLocalPlayer)
@@ -664,6 +665,25 @@ public sealed class PlayerController : NetworkBehaviour
         }
     }
 
+    /// <summary>
+    /// Owner 用胶囊走路；Server 上也要开着所有人的胶囊，占领圈才能数到远端玩家。
+    /// 纯客户端上的远端玩家关掉，避免本地物理乱推。
+    /// </summary>
+    bool ShouldEnableCharacterController()
+    {
+        if (_deadPresentation || (_playerHealth != null && _playerHealth.IsDead))
+        {
+            return false;
+        }
+
+        if (!IsSpawned)
+        {
+            return true;
+        }
+
+        return IsOwner || IsServer;
+    }
+
     public void SetDeadPresentation(bool dead)
     {
         _deadPresentation = dead;
@@ -688,7 +708,7 @@ public sealed class PlayerController : NetworkBehaviour
 
         if (_characterController != null)
         {
-            _characterController.enabled = !dead && (!IsSpawned || IsOwner);
+            _characterController.enabled = ShouldEnableCharacterController();
         }
 
         if (dead)

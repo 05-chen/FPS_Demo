@@ -191,7 +191,7 @@ public class PlayerWeapon : NetworkBehaviour
         int valid = 0;
         for (int i = 0; i < hitCount; i++)
         {
-            if (IsSelfCollider(HitscanHits[i].collider))
+            if (IsSelfCollider(HitscanHits[i].collider) || BodyPartHitbox.IsInvisibleTrigger(HitscanHits[i].collider))
             {
                 continue;
             }
