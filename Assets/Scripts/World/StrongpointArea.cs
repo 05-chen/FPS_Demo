@@ -258,7 +258,8 @@ namespace World
 
         /// <summary>
         /// 输出圈内 Alive 红/蓝有效战力（人数 × captureWeight）。Downed / Dead 不计。
-        /// 用快照遍历，避免计分中途 Remove 抛异常；位置已不在圈内则清掉幽灵 ClientId。
+        /// 死亡会关掉 CharacterController，Unity 不发 OnTriggerExit；远端位移靠 NetworkTransform 写入，也不一定发 Enter。
+        /// 所以每拍按球体位置重算活人，不把旧 ClientId 留在名单里。
         /// </summary>
         public void EvaluateActivePlayers(out int redCount, out int blueCount)
         {
@@ -297,6 +298,16 @@ namespace World
             }
 
             Collider zone = GetComponent<Collider>();
+            // 补上 Trigger 漏报的活人；人已经走出球体、或不再 Alive，下面的遍历会删掉。
+            foreach (var pair in network.ConnectedClients)
+            {
+                NetworkObject playerObject = pair.Value.PlayerObject;
+                if (playerObject != null && IsLivingInside(playerObject, zone))
+                {
+                    _playersInZone.Add(pair.Key);
+                }
+            }
+
             foreach (ulong clientId in new List<ulong>(_playersInZone))
             {
                 if (!network.ConnectedClients.TryGetValue(clientId, out var client) || client.PlayerObject == null)
@@ -311,13 +322,8 @@ namespace World
                     continue;
                 }
 
-                if (client.PlayerObject.GetComponent<PlayerHealth>() is not PlayerHealth health ||
-                    health.LifeState != PlayerLifeState.Alive)
-                {
-                    continue;
-                }
-
-                if (zone != null && !zone.bounds.Contains(client.PlayerObject.transform.position))
+                // 倒地 / 死亡立刻出名单。只 continue 的话，碰撞被关掉后这份 Id 会一直留着。
+                if (!IsLivingInside(client.PlayerObject, zone))
                 {
                     RemoveOccupant(clientId);
                     continue;
@@ -333,6 +339,38 @@ namespace World
                     blueCount += weight;
                 }
             }
+        }
+
+        /// <summary>只有 Alive 且站在核心球体里才算占领人头。用球心距离，不用包围盒（盒子比球大，人走出圈仍会算在里面）。</summary>
+        static bool IsLivingInside(NetworkObject playerObject, Collider zone)
+        {
+            if (playerObject == null || zone == null)
+            {
+                return false;
+            }
+
+            if (playerObject.GetComponent<PlayerHealth>() is not PlayerHealth health ||
+                health.LifeState != PlayerLifeState.Alive)
+            {
+                return false;
+            }
+
+            return ContainsOccupant(zone, playerObject.transform.position);
+        }
+
+        /// <summary>Trigger 上 ClosestPoint 不可靠，球体直接比距离。</summary>
+        static bool ContainsOccupant(Collider zone, Vector3 position)
+        {
+            if (zone is SphereCollider sphere)
+            {
+                Vector3 center = sphere.transform.TransformPoint(sphere.center);
+                Vector3 scale = sphere.transform.lossyScale;
+                float maxScale = Mathf.Max(Mathf.Abs(scale.x), Mathf.Abs(scale.y), Mathf.Abs(scale.z));
+                float radius = sphere.radius * maxScale;
+                return (position - center).sqrMagnitude <= radius * radius;
+            }
+
+            return zone.bounds.Contains(position);
         }
 
         static bool TryGetPlayerClientId(Collider other, out ulong clientId) =>
