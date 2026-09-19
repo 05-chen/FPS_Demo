@@ -787,14 +787,14 @@ public sealed class SteamLobbySession : MonoBehaviour
         {
             if (clientId != network.LocalClientId)
             {
-                Notify("对手已断开。");
+                Notify("对手已断开：" + SteamNetworkTransport.ConsumeDisconnectNotice());
             }
 
             return;
         }
 
-        Notify("与主机断开，已返回大厅。");
-        LeaveSession();
+        // 先停在提示上，等玩家点击再回大厅，避免和大厅界面叠在一起。
+        UI.DisconnectNoticeUI.EnsureInstance().Show(SteamNetworkTransport.ConsumeDisconnectNotice());
     }
 
     void OnLobbyList(LobbyMatchList_t result, bool ioFailure)

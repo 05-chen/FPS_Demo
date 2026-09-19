@@ -58,6 +58,7 @@ public sealed class SteamNetworkTransport : NetworkTransport
         }
 
         SteamNetworkingUtils.InitRelayNetworkAccess();
+        ApplyKeepAliveTimeout();
         _pollGroup = SteamNetworkingSockets.CreatePollGroup();
         _statusChanged = Callback<SteamNetConnectionStatusChangedCallback_t>.Create(OnConnectionStatusChanged);
         _initialized = true;
@@ -106,6 +107,7 @@ public sealed class SteamNetworkTransport : NetworkTransport
         }
 
         SteamNetworkingSockets.SetConnectionPollGroup(_serverConnection, _pollGroup);
+        _lastDisconnectNotice = null;
         GameLog.Info(LogCategory, "正在通过 Steam P2P 连接房主: " + ConnectToSteamId);
         return true;
     }
@@ -321,9 +323,93 @@ public sealed class SteamNetworkTransport : NetworkTransport
         Enqueue(NetworkEvent.Connect, ServerClientId, null, 0, false);
     }
 
+    /// <summary>最近一次 Steam 断开的中文说明。给掉线提示界面用，用完即清。</summary>
+    public static string ConsumeDisconnectNotice()
+    {
+        string notice = string.IsNullOrEmpty(_lastDisconnectNotice)
+            ? "与主机失去连接。可能是网络中断，或主机已经离开。"
+            : _lastDisconnectNotice;
+        _lastDisconnectNotice = null;
+        return notice;
+    }
+
+    static string _lastDisconnectNotice;
+
+    /// <summary>
+    /// Steam 默认大约 10 秒没数据就掐连接，比场景里 NGO 的 30 秒短。
+    /// 进场景卡一下，或国内中继抖一下，客户端就会先被 Steam 踢掉。
+    /// </summary>
+    static void ApplyKeepAliveTimeout()
+    {
+        const int timeoutMs = 30000;
+        SetGlobalInt(ESteamNetworkingConfigValue.k_ESteamNetworkingConfig_TimeoutInitial, timeoutMs);
+        SetGlobalInt(ESteamNetworkingConfigValue.k_ESteamNetworkingConfig_TimeoutConnected, timeoutMs);
+    }
+
+    static void SetGlobalInt(ESteamNetworkingConfigValue value, int number)
+    {
+        GCHandle handle = GCHandle.Alloc(number, GCHandleType.Pinned);
+        try
+        {
+            SteamNetworkingUtils.SetConfigValue(
+                value,
+                ESteamNetworkingConfigScope.k_ESteamNetworkingConfig_Global,
+                IntPtr.Zero,
+                ESteamNetworkingConfigDataType.k_ESteamNetworkingConfig_Int32,
+                handle.AddrOfPinnedObject());
+        }
+        finally
+        {
+            handle.Free();
+        }
+    }
+
+    static string DescribeEndReason(ESteamNetConnectionEnd reason, string debug)
+    {
+        string extra = string.IsNullOrEmpty(debug) ? "" : "（" + debug + "）";
+        if (debug == "Shutdown" || debug == "DisconnectLocalClient")
+        {
+            return "主机离开了房间。" + extra;
+        }
+
+        switch (reason)
+        {
+            case ESteamNetConnectionEnd.k_ESteamNetConnectionEnd_Remote_Timeout:
+            case ESteamNetConnectionEnd.k_ESteamNetConnectionEnd_Misc_Timeout:
+                return "网络超时。和主机之间太久没有收到数据，连接被断开。" + extra;
+            case ESteamNetConnectionEnd.k_ESteamNetConnectionEnd_Misc_SteamConnectivity:
+            case ESteamNetConnectionEnd.k_ESteamNetConnectionEnd_Misc_NoRelaySessionsToClient:
+                return "Steam 中继不通。国内网络经常这样，不是游戏把你踢出房间。" + extra;
+            case ESteamNetConnectionEnd.k_ESteamNetConnectionEnd_Misc_P2P_NAT_Firewall:
+            case ESteamNetConnectionEnd.k_ESteamNetConnectionEnd_Local_P2P_ICE_NoPublicAddresses:
+            case ESteamNetConnectionEnd.k_ESteamNetConnectionEnd_Remote_P2P_ICE_NoPublicAddresses:
+                return "防火墙或路由器拦住了连接，Steam 也没找到可用线路。" + extra;
+            case ESteamNetConnectionEnd.k_ESteamNetConnectionEnd_Local_OfflineMode:
+                return "Steam 处于离线模式，联机会被断开。" + extra;
+            case ESteamNetConnectionEnd.k_ESteamNetConnectionEnd_Misc_P2P_Rendezvous:
+                return "没能和主机完成握手。多半是网络或 Steam 中继的问题。" + extra;
+            default:
+                int code = (int)reason;
+                if (code >= (int)ESteamNetConnectionEnd.k_ESteamNetConnectionEnd_App_Min
+                    && code <= (int)ESteamNetConnectionEnd.k_ESteamNetConnectionEnd_App_Max)
+                {
+                    return "对方主动断开了连接。" + extra;
+                }
+
+                return "连接中断。Steam 原因码 " + code + "。" + extra;
+        }
+    }
+
     void HandleDisconnected(HSteamNetConnection connection, SteamNetConnectionStatusChangedCallback_t data)
     {
-        GameLog.Warn(LogCategory, "Steam P2P 断开: " + data.m_info.m_eEndReason + " " + data.m_info.m_szEndDebug);
+        string debug = data.m_info.m_szEndDebug;
+        // CloseConnection 收尾时会再来一次 "Closed"，不能把真正的原因盖掉。
+        if (debug != "Closed" || string.IsNullOrEmpty(_lastDisconnectNotice))
+        {
+            _lastDisconnectNotice = DescribeEndReason(data.m_info.m_eEndReason, debug);
+        }
+
+        GameLog.Warn(LogCategory, "Steam P2P 断开: " + data.m_info.m_eEndReason + " " + debug);
 
         if (_isServer)
         {

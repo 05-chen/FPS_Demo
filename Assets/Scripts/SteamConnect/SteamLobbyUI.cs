@@ -275,7 +275,7 @@ public sealed class SteamLobbyUI : MonoBehaviour
 
     void ShowLobby()
     {
-        if (UI.MatchEndUI.IsAwaitingDismiss)
+        if (UI.MatchEndUI.IsAwaitingDismiss || UI.DisconnectNoticeUI.IsAwaitingDismiss)
         {
             return;
         }

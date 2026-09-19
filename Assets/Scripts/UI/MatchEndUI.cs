@@ -75,7 +75,7 @@ namespace UI
 
         void Update()
         {
-            if (!_awaitingDismiss || _canvasRoot == null || !_canvasRoot.activeSelf)
+            if (!_awaitingDismiss || _canvasRoot == null || !_canvasRoot.activeSelf || DisconnectNoticeUI.IsAwaitingDismiss)
             {
                 return;
             }
