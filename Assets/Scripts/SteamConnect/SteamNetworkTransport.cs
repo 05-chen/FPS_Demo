@@ -406,7 +406,7 @@ public sealed class SteamNetworkTransport : NetworkTransport
         // CloseConnection 收尾时会再来一次 "Closed"，不能把真正的原因盖掉。
         if (debug != "Closed" || string.IsNullOrEmpty(_lastDisconnectNotice))
         {
-            _lastDisconnectNotice = DescribeEndReason(data.m_info.m_eEndReason, debug);
+            _lastDisconnectNotice = DescribeEndReason((ESteamNetConnectionEnd)data.m_info.m_eEndReason, debug);
         }
 
         GameLog.Warn(LogCategory, "Steam P2P 断开: " + data.m_info.m_eEndReason + " " + debug);
