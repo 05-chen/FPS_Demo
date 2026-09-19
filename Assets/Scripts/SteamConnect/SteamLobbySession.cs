@@ -6,6 +6,7 @@ using Unity.Netcode;
 using Unity.Netcode.Transports.UTP;
 using UnityEngine;
 using UnityEngine.SceneManagement;
+using World;
 
 /// <summary>
 /// Steam 大厅会话 + NGO 开房/加入。
@@ -38,6 +39,7 @@ public sealed class SteamLobbySession : MonoBehaviour
     readonly Dictionary<ulong, TeamId> _chosenTeams = new Dictionary<ulong, TeamId>();
     bool _matchLoadStarted;
     bool _gameplayStarted;
+    bool _hostOpenedNewRound;
     Coroutine _matchLoadRoutine;
 
     CallResult<LobbyCreated_t> _lobbyCreated;
@@ -443,7 +445,9 @@ public sealed class SteamLobbySession : MonoBehaviour
         IsOfflineSession = false;
         ResetMatchChoices();
         Managers.SpawnManager.ConfigureDelayedPlayerSpawn(NetworkManager.Singleton);
-        return NetworkManager.Singleton.StartHost();
+        bool started = NetworkManager.Singleton.StartHost();
+        _hostOpenedNewRound = started;
+        return started;
     }
 
     public bool StartOfflineHost()
@@ -470,10 +474,13 @@ public sealed class SteamLobbySession : MonoBehaviour
         Managers.SpawnManager.ConfigureDelayedPlayerSpawn(NetworkManager.Singleton);
         if (!NetworkManager.Singleton.StartHost())
         {
+            _hostOpenedNewRound = false;
             UseSteamTransport();
             IsOfflineSession = false;
             return false;
         }
+
+        _hostOpenedNewRound = true;
 
         Notify("已进入单机练习。请选择红方或蓝方。");
         NetworkStarted?.Invoke();
@@ -604,6 +611,13 @@ public sealed class SteamLobbySession : MonoBehaviour
         }
 
         Notify("已进入对局场景。");
+        if (network.IsServer)
+        {
+            bool openedNewRound = _hostOpenedNewRound;
+            _hostOpenedNewRound = false;
+            MatchGameManager.ServerHandleMatchEntry(openedNewRound);
+        }
+
         _gameplayStarted = true;
         _matchLoadStarted = false;
         _matchLoadRoutine = null;
@@ -614,6 +628,7 @@ public sealed class SteamLobbySession : MonoBehaviour
         _chosenTeams.Clear();
         _matchLoadStarted = false;
         _gameplayStarted = false;
+        _hostOpenedNewRound = false;
         StopMatchLoad();
     }
 
@@ -724,6 +739,7 @@ public sealed class SteamLobbySession : MonoBehaviour
 
             if (_gameplayStarted)
             {
+                // 对局还在。重连只复活，进度由主机上的对局状态决定，这里不能清。
                 if (Managers.SpawnManager.Instance != null && Managers.SpawnManager.Instance.IsSpawned)
                 {
                     if (_chosenTeams.TryGetValue(clientId, out TeamId savedTeam))

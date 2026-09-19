@@ -262,8 +262,23 @@ public sealed class SteamLobbyUI : MonoBehaviour
         ShowLobby();
     }
 
+    /// <summary>结算播报显示期间先收起大厅，等玩家点击后再打开。</summary>
+    public static void HideForMatchEnd()
+    {
+        if (Instance == null)
+        {
+            return;
+        }
+
+        Instance.HideLobbyVisuals(true);
+    }
+
     void ShowLobby()
     {
+        if (UI.MatchEndUI.IsAwaitingDismiss)
+        {
+            return;
+        }
         PauseGate.Resume();
         GameplayGate.Block();
 

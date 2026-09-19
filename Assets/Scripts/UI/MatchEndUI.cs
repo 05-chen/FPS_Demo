@@ -14,6 +14,10 @@ namespace UI
         GameObject _canvasRoot;
         Text _title;
         Text _subtitle;
+        bool _awaitingDismiss;
+
+        /// <summary>播报还在等点击时，大厅不能同时打开。</summary>
+        public static bool IsAwaitingDismiss => Instance != null && Instance._awaitingDismiss;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
         static void ResetStatics() => Instance = null;
@@ -57,7 +61,43 @@ namespace UI
                 FontStyle.Normal,
                 Color.white);
             _subtitle.alignment = TextAnchor.MiddleCenter;
+            RuntimeUiFactory.CreateText(
+                _canvasRoot.transform,
+                "Hint",
+                "点击任意位置返回大厅",
+                22,
+                new Vector2(0f, -160f),
+                new Vector2(900f, 40f),
+                FontStyle.Normal,
+                new Color(1f, 1f, 1f, 0.85f)).alignment = TextAnchor.MiddleCenter;
             _canvasRoot.SetActive(false);
+        }
+
+        void Update()
+        {
+            if (!_awaitingDismiss || _canvasRoot == null || !_canvasRoot.activeSelf)
+            {
+                return;
+            }
+
+            Cursor.lockState = CursorLockMode.None;
+            Cursor.visible = true;
+            if (Input.GetMouseButtonDown(0))
+            {
+                Dismiss();
+            }
+        }
+
+        /// <summary>先关掉播报，再打开大厅，避免两层 UI 叠在同一屏。</summary>
+        void Dismiss()
+        {
+            _awaitingDismiss = false;
+            if (_canvasRoot != null)
+            {
+                _canvasRoot.SetActive(false);
+            }
+
+            World.MatchGameManager.ContinueAfterMatchEnd();
         }
 
         /// <summary>winner=None 为平局；按本地玩家阵营显示胜/负。</summary>
@@ -94,7 +134,11 @@ namespace UI
                 _subtitle.text = isSweep ? "对方已占领我方指挥部" : "时间到 · 占领战区更少";
             }
 
+            SteamLobbyUI.HideForMatchEnd();
+            _awaitingDismiss = true;
             _canvasRoot.SetActive(true);
+            Cursor.lockState = CursorLockMode.None;
+            Cursor.visible = true;
         }
     }
 }

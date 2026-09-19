@@ -41,7 +41,8 @@ public class BodyPartHitbox : MonoBehaviour
         collider != null && collider.isTrigger && collider.GetComponentInParent<BodyPartHitbox>() == null;
 
     /// <summary>
-    /// 沿射线穿过假人时，躯干盒往往会挡住头/手脚。按距离排序后穿过所有 Hitbox，优先取更精确的部位。
+    /// 沿射线选部位。先锁住最近的那个角色，再在他身上取最高优先级：头 &gt; 躯干 &gt; 四肢。
+    /// 手臂在前不会让扫描停住，但不会穿透到后面另一个人。
     /// </summary>
     public static BodyPartHitbox PickBestAlongRay(RaycastHit[] hits, int count)
     {
@@ -52,20 +53,15 @@ public class BodyPartHitbox : MonoBehaviour
 
         System.Array.Sort(hits, 0, count, DistanceComparer.Instance);
 
+        Transform lockedRoot = null;
         BodyPartHitbox best = null;
-        int bestSpecificity = -1;
+        int bestPriority = -1;
         for (int i = 0; i < count; i++)
         {
             Collider col = hits[i].collider;
-            if (col == null)
+            if (col == null || col is CharacterController)
             {
-                continue;
-            }
-
-            // CharacterController 本质也是 Collider，且体积通常大于所有骨骼 Hitbox，会挡在最近处。
-            // 这里必须 continue 跳过（穿透），一旦误用 break 就会提前终止扫描，导致部位判定整体失效。
-            if (col is CharacterController)
-            {
+                // CharacterController 体积通常大于所有骨骼 Hitbox，会挡在最近处。必须跳过，不能 break。
                 continue;
             }
 
@@ -82,10 +78,20 @@ public class BodyPartHitbox : MonoBehaviour
                 break;
             }
 
-            int specificity = Specificity(hitbox.bodyPart);
-            if (specificity > bestSpecificity)
+            Transform root = hitbox.transform.root;
+            if (lockedRoot == null)
             {
-                bestSpecificity = specificity;
+                lockedRoot = root;
+            }
+            else if (root != lockedRoot)
+            {
+                break;
+            }
+
+            int priority = Priority(hitbox.bodyPart);
+            if (priority > bestPriority)
+            {
+                bestPriority = priority;
                 best = hitbox;
             }
         }
@@ -101,7 +107,7 @@ public class BodyPartHitbox : MonoBehaviour
         }
 
         BodyPartHitbox best = null;
-        int bestSpecificity = -1;
+        int bestPriority = -1;
         for (int i = 0; i < count; i++)
         {
             Collider col = colliders[i];
@@ -116,10 +122,10 @@ public class BodyPartHitbox : MonoBehaviour
                 continue;
             }
 
-            int specificity = Specificity(hitbox.bodyPart);
-            if (specificity > bestSpecificity)
+            int priority = Priority(hitbox.bodyPart);
+            if (priority > bestPriority)
             {
-                bestSpecificity = specificity;
+                bestPriority = priority;
                 best = hitbox;
             }
         }
@@ -127,14 +133,14 @@ public class BodyPartHitbox : MonoBehaviour
         return best;
     }
 
-    static int Specificity(DetailedBodyPart part)
+    /// <summary>头 3，躯干 2，手臂和腿 1。数值越大越优先。</summary>
+    static int Priority(DetailedBodyPart part)
     {
         switch (part)
         {
             case DetailedBodyPart.Head:
                 return 3;
-            case DetailedBodyPart.Arms:
-            case DetailedBodyPart.Legs:
+            case DetailedBodyPart.Torso:
                 return 2;
             default:
                 return 1;

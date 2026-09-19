@@ -121,6 +121,7 @@ namespace World
             EvaluateFrontlineForces(out activeRedWeight, out activeBlueWeight);
             SyncOccupantCounts(activeRedWeight, activeBlueWeight);
             UpdateCaptureLogic(activeRedWeight, activeBlueWeight);
+            SnapRearGuardedProgress();
             LogCaptureState(activeRedWeight, activeBlueWeight);
         }
 
@@ -326,6 +327,86 @@ namespace World
                 OwnerTeam.Value = nextOwner;
                 GameLog.Info("Sector", "[战线] " + PointName + " 已被" +
                     (nextOwner == TeamId.Red ? "红方" : "蓝方") + "占领。");
+            }
+        }
+
+        /// <summary>
+        /// 前方据点已被己方占住时，本点不再保留拉锯进度。
+        /// 否则 C 被对方抢回去后，B 会把藏起来的半截进度再画出来。
+        /// </summary>
+        void SnapRearGuardedProgress()
+        {
+            if (!IsRearGuarded)
+            {
+                return;
+            }
+
+            float target = OwnerTeam.Value == TeamId.Red ? 1f : OwnerTeam.Value == TeamId.Blue ? -1f : 0f;
+            if (Mathf.Approximately(CaptureProgress.Value, target))
+            {
+                return;
+            }
+
+            CaptureProgress.Value = target;
+            SyncHasBeenCaptured(target);
+        }
+
+        /// <summary>新开一局时写回开局归属。HasBeenCaptured 必须清掉，否则中立点会继续画上一局的红蓝条。</summary>
+        public void ServerResetForNewMatch()
+        {
+            if (!IsSpawned || !IsServer)
+            {
+                return;
+            }
+
+            OwnerTeam.Value = defaultOwner;
+            CaptureProgress.Value = defaultOwner switch
+            {
+                TeamId.Red => 1f,
+                TeamId.Blue => -1f,
+                _ => 0f
+            };
+            bool fullyOwned = CaptureProgress.Value >= 1f || CaptureProgress.Value <= -1f;
+            HasBeenCaptured.Value = fullyOwned;
+            OccupantRedCount.Value = 0;
+            OccupantBlueCount.Value = 0;
+            if (strongPointArea != null && strongPointArea.sectorData != null)
+            {
+                strongPointArea.sectorData.HasBeenCaptured = fullyOwned;
+            }
+        }
+
+        /// <summary>红或蓝是否还占着至少一个点。用来判断这一局的占领状态还在不在。</summary>
+        public static bool AnySideHoldsPoint()
+        {
+            SectorManager[] managers = FindAll();
+            for (int i = 0; i < managers.Length; i++)
+            {
+                SectorManager manager = managers[i];
+                if (manager == null || !manager.IsSpawned)
+                {
+                    continue;
+                }
+
+                if (manager.OwnerTeam.Value == TeamId.Red || manager.OwnerTeam.Value == TeamId.Blue)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>主机开新局时重置场景里全部战区。对局进行中不得调用。</summary>
+        public static void ServerResetAllForNewMatch()
+        {
+            SectorManager[] managers = FindAll();
+            for (int i = 0; i < managers.Length; i++)
+            {
+                if (managers[i] != null)
+                {
+                    managers[i].ServerResetForNewMatch();
+                }
             }
         }
 

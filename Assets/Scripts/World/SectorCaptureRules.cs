@@ -277,8 +277,18 @@ namespace World
                 return;
             }
 
-            // 双方对峙：立刻红蓝拼接（开局 C 双人入场也走这里）
-            if (IsContested(redCount, blueCount) || UsesCapturedHud(owner, hasBeenCaptured))
+            // 双方对峙：按圈内人头比例切开，不沿用旧的 CaptureProgress。
+            // 1 对 1 就是各一半；2 对 1 就是 2/3 与 1/3。进度仍由速率去推，条只表示此刻谁人多。
+            if (IsContested(redCount, blueCount))
+            {
+                showGray = false;
+                float total = redCount + blueCount;
+                redFill = redCount / total;
+                blueFill = 1f - redFill;
+                return;
+            }
+
+            if (UsesCapturedHud(owner, hasBeenCaptured))
             {
                 showGray = false;
                 redFill = ToHudFillAmount(progress);

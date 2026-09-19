@@ -16,9 +16,18 @@ namespace World
         public static bool IsMatchOver =>
             Instance != null && Instance.IsSpawned && Instance.MatchEnded.Value;
 
+        /// <summary>
+        /// 这一局还在打：倒计时没结束，且红或蓝仍占着至少一个点。
+        /// 客户端断线重连时用它判断，不能把进度清掉。
+        /// </summary>
+        public bool IsRoundStillActive =>
+            IsSpawned
+            && !MatchEnded.Value
+            && MatchTimer.Value > 0f
+            && SectorManager.AnySideHoldsPoint();
+
         [Header("倒计时")]
         [SerializeField] float matchDurationSeconds = 900f;
-        [SerializeField] float returnToLobbyDelay = 5f;
 
         public readonly NetworkVariable<float> MatchTimer = new NetworkVariable<float>(
             900f,
@@ -45,6 +54,48 @@ namespace World
             MatchEnded.Value = false;
             MatchTimer.Value = Mathf.Max(1f, matchDurationSeconds);
             GameLog.Info("Match", "对局计时开始 " + MatchTimer.Value.ToString("F0") + " 秒");
+        }
+
+        /// <summary>
+        /// 主机权威的进场判定。只有主机新开一局才重置进度和倒计时；
+        /// 对局还在时（例如非主机退出再进）一律保留。
+        /// </summary>
+        public static void ServerHandleMatchEntry(bool hostOpenedNewRound)
+        {
+            if (NetworkManager.Singleton == null || !NetworkManager.Singleton.IsServer)
+            {
+                return;
+            }
+
+            if (!hostOpenedNewRound)
+            {
+                if (Instance != null && Instance.IsRoundStillActive)
+                {
+                    GameLog.Info("Match", "对局未结束，保留占领进度与倒计时。");
+                }
+
+                return;
+            }
+
+            SectorManager.ServerResetAllForNewMatch();
+            if (Instance != null && Instance.IsSpawned)
+            {
+                Instance.ServerBeginNewRound();
+            }
+
+            GameLog.Info("Match", "主机新开一局，占领进度与倒计时已重置。");
+        }
+
+        /// <summary>主机新开一局时清倒计时和胜负标记，否则占点 Update 会一直停着。</summary>
+        public void ServerBeginNewRound()
+        {
+            if (!IsServer || !IsSpawned)
+            {
+                return;
+            }
+
+            MatchEnded.Value = false;
+            MatchTimer.Value = Mathf.Max(1f, matchDurationSeconds);
         }
 
         public override void OnNetworkDespawn()
@@ -150,12 +201,11 @@ namespace World
             GameplayGate.Block();
             MatchEndUI.EnsureInstance().Show(winner, isSweep);
             GameLog.Info("Match", "收到结算 RPC winner=" + winner + " sweep=" + isSweep);
-            StartCoroutine(ReturnToLobbyAfterDelay());
         }
 
-        System.Collections.IEnumerator ReturnToLobbyAfterDelay()
+        /// <summary>结算界面被点击后才回大厅。自动倒计时会和播报叠在同一屏。</summary>
+        public static void ContinueAfterMatchEnd()
         {
-            yield return new WaitForSecondsRealtime(Mathf.Max(1f, returnToLobbyDelay));
             ReturnToLobby();
         }
 
