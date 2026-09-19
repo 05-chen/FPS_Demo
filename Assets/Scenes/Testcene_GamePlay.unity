@@ -174,7 +174,7 @@ MonoBehaviour:
     captureDuration: 15
     emptyDecayPerSecond: 0
     HasBeenCaptured: 0
-  captureWeight: 3
+  captureWeight: 1
 --- !u!135 &3764365
 SphereCollider:
   m_ObjectHideFlags: 0
@@ -248,7 +248,7 @@ MonoBehaviour:
     captureDuration: 15
     emptyDecayPerSecond: 0
     HasBeenCaptured: 0
-  captureWeight: 3
+  captureWeight: 1
 --- !u!135 &13118880
 SphereCollider:
   m_ObjectHideFlags: 0
@@ -674,7 +674,7 @@ MonoBehaviour:
     captureDuration: 15
     emptyDecayPerSecond: 0
     HasBeenCaptured: 0
-  captureWeight: 3
+  captureWeight: 1
 --- !u!135 &529625322
 SphereCollider:
   m_ObjectHideFlags: 0
@@ -1108,7 +1108,7 @@ MonoBehaviour:
     captureDuration: 15
     emptyDecayPerSecond: 0
     HasBeenCaptured: 0
-  captureWeight: 3
+  captureWeight: 1
 --- !u!135 &732074307
 SphereCollider:
   m_ObjectHideFlags: 0
@@ -1182,7 +1182,7 @@ MonoBehaviour:
     captureDuration: 15
     emptyDecayPerSecond: 0
     HasBeenCaptured: 0
-  captureWeight: 3
+  captureWeight: 1
 --- !u!135 &1042274288
 SphereCollider:
   m_ObjectHideFlags: 0

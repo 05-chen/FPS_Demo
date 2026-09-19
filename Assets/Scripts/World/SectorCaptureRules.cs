@@ -111,10 +111,9 @@ namespace World
             rearGuarded || (owner == TeamId.None && !capturable);
 
         /// <summary>
-        /// 按圈内人数计算占领速率（进度/秒，红为正、蓝为负）。
-        /// 单人基础速度 V = 1 / captureDuration（净 1 人从 0 打到 ±1 所需秒数的倒数）；
-        /// 多人线性叠加：单方 n 人 = n × V；拉锯则 (RedCount - BlueCount) × V。
-        /// 双方均为 0 时返回 0（自然衰减由 <see cref="ApplyCaptureTick"/> 另算）。
+        /// 按圈内人头计算占领速率（进度/秒，红为正、蓝为负）。
+        /// 传入的必须是人头，不要预先乘 captureWeight。1 个人的速度 V = 1 / captureDuration，
+        /// 从 0 打到 ±1 的时间就是 captureDuration（场景里是 15 秒）。两人同点且人数相等则差值为 0，进度暂停。
         /// </summary>
         public static float CalculateCaptureRate(int redCount, int blueCount, float captureDuration)
         {

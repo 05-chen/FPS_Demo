@@ -6,7 +6,8 @@ using UnityEngine;
 namespace World
 {
     /// <summary>
-    /// 核心争夺圈（约 30m Sphere Trigger）。只统计 Alive 玩家的占领战力。
+    /// 核心争夺圈。半径以挂在同一物体上的 SphereCollider 为准（当前场景为 8 米），不是大战区盒子。
+    /// 只统计 Alive 玩家。每人计 1 人头，单人打满时间等于 SectorData.captureDuration，不乘 captureWeight。
     /// </summary>
     [RequireComponent(typeof(Collider))]
     public class StrongpointArea : MonoBehaviour
@@ -15,8 +16,8 @@ namespace World
         public SectorData sectorData;
 
         [Header("占领权重")]
-        [Tooltip("核心圈人数乘以此权重，例如 3")]
-        [SerializeField] int captureWeight = 3;
+        [Tooltip("不再加快占点。单人从 0 打到满的时间只看 SectorData.captureDuration。保留字段以免场景序列化丢失。")]
+        [SerializeField] int captureWeight = 1;
 
         readonly HashSet<ulong> _playersInZone = new HashSet<ulong>();
         readonly List<TrackedCollider> _trackedColliders = new List<TrackedCollider>();
@@ -30,6 +31,81 @@ namespace World
         }
 
         public int CaptureWeight => captureWeight;
+
+        /// <summary>
+        /// 触发器没有刚体时，CharacterController 的 OnTriggerEnter 会丢。
+        /// 黑盒测试会自己加刚体；场景上的核心圈以前没有，人站在球里也不进名单。
+        /// </summary>
+        void Awake()
+        {
+            Rigidbody body = GetComponent<Rigidbody>();
+            if (body == null)
+            {
+                body = gameObject.AddComponent<Rigidbody>();
+            }
+
+            body.isKinematic = true;
+            body.useGravity = false;
+            EnsureRuntimeRing();
+        }
+
+        /// <summary>场景视图里画出核心球，避免把 100×30 的大战区当成占点范围。</summary>
+        void OnDrawGizmos()
+        {
+            ResolveSphere(out Vector3 center, out float radius);
+            Gizmos.color = new Color(1f, 0.85f, 0.2f, 0.95f);
+            Gizmos.DrawWireSphere(center, radius);
+        }
+
+        /// <summary>运行时在球的赤道画一圈，进游戏也能看见 8 米边界。</summary>
+        void EnsureRuntimeRing()
+        {
+            LineRenderer ring = GetComponent<LineRenderer>();
+            if (ring == null)
+            {
+                ring = gameObject.AddComponent<LineRenderer>();
+            }
+
+            const int segments = 48;
+            ring.useWorldSpace = true;
+            ring.loop = true;
+            ring.positionCount = segments;
+            ring.widthMultiplier = 0.12f;
+            ring.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            ring.receiveShadows = false;
+            Shader shader = Shader.Find("Sprites/Default");
+            if (shader != null)
+            {
+                ring.material = new Material(shader);
+            }
+
+            Color color = new Color(1f, 0.85f, 0.2f, 0.9f);
+            ring.startColor = color;
+            ring.endColor = color;
+
+            ResolveSphere(out Vector3 center, out float radius);
+            for (int i = 0; i < segments; i++)
+            {
+                float angle = i / (float)segments * Mathf.PI * 2f;
+                ring.SetPosition(i, center + new Vector3(Mathf.Cos(angle) * radius, 0f, Mathf.Sin(angle) * radius));
+            }
+        }
+
+        /// <summary>优先用 SphereCollider 的世界半径；没有球时退回 8 米。</summary>
+        void ResolveSphere(out Vector3 center, out float radius)
+        {
+            if (GetComponent<Collider>() is SphereCollider sphere)
+            {
+                center = sphere.transform.TransformPoint(sphere.center);
+                Vector3 scale = sphere.transform.lossyScale;
+                float maxScale = Mathf.Max(Mathf.Abs(scale.x), Mathf.Abs(scale.y), Mathf.Abs(scale.z));
+                radius = sphere.radius * maxScale;
+                return;
+            }
+
+            center = transform.position;
+            radius = 8f;
+        }
 
         /// <summary>灰盒 Mock：虚拟圈内玩家（无需真实 Player 实例）。</summary>
         public struct MockOccupant
@@ -47,6 +123,15 @@ namespace World
             }
 
             _playersInZone.Add(clientId);
+            for (int i = 0; i < _trackedColliders.Count; i++)
+            {
+                TrackedCollider tracked = _trackedColliders[i];
+                if (tracked.ClientId == clientId && tracked.Collider == other)
+                {
+                    return;
+                }
+            }
+
             _trackedColliders.Add(new TrackedCollider
             {
                 Collider = other,
@@ -98,8 +183,12 @@ namespace World
         /// <summary>兼容旧调用名，内部转到 CleanInvalidEntries。</summary>
         public void CleanupUnusedReferences() => CleanInvalidEntries();
 
+        /// <summary>
+        /// 死亡只把 CharacterController.enabled 设为 false，物体仍然 active。
+        /// 不把禁用碰撞体算掉的话，OnTriggerExit 又不会来，名单就残留。
+        /// </summary>
         static bool IsDeadOrInactive(Collider collider) =>
-            !collider || collider.gameObject == null || !collider.gameObject.activeInHierarchy;
+            !collider || !collider.enabled || collider.gameObject == null || !collider.gameObject.activeInHierarchy;
 
         bool HasLiveCollider(ulong clientId)
         {
@@ -257,47 +346,41 @@ namespace World
         }
 
         /// <summary>
-        /// 输出圈内 Alive 红/蓝有效战力（人数 × captureWeight）。Downed / Dead 不计。
-        /// 死亡会关掉 CharacterController，Unity 不发 OnTriggerExit；远端位移靠 NetworkTransform 写入，也不一定发 Enter。
-        /// 所以每拍按球体位置重算活人，不把旧 ClientId 留在名单里。
+        /// 输出圈内 Alive 红/蓝人头。每人 +1，不乘 captureWeight，这样 captureDuration=15 时单人正好 15 秒。
+        /// 圈里有真人时只算真人。没有真人时，Mock 仅在调试模式（Alt+F9）打开后才计入。
         /// </summary>
         public void EvaluateActivePlayers(out int redCount, out int blueCount)
         {
             CleanInvalidEntries();
             redCount = 0;
             blueCount = 0;
-            int weight = Mathf.Max(1, captureWeight);
 
-            if (_mockOccupants.Count > 0)
+            if (TryScoreLivingPlayers(out redCount, out blueCount))
             {
-                for (int i = 0; i < _mockOccupants.Count; i++)
-                {
-                    MockOccupant occupant = _mockOccupants[i];
-                    if (occupant.Life != PlayerLifeState.Alive)
-                    {
-                        continue;
-                    }
-
-                    if (occupant.Team == TeamId.Red)
-                    {
-                        redCount += weight;
-                    }
-                    else if (occupant.Team == TeamId.Blue)
-                    {
-                        blueCount += weight;
-                    }
-                }
-
                 return;
             }
 
+            if (!DebugCommandGate.IsEnabled)
+            {
+                return;
+            }
+
+            ScoreMockOccupants(out redCount, out blueCount);
+        }
+
+        /// <summary>圈内有存活真人时写出人头并返回 true，残留 Mock 不得盖过这批人。</summary>
+        bool TryScoreLivingPlayers(out int redCount, out int blueCount)
+        {
+            redCount = 0;
+            blueCount = 0;
             NetworkManager network = NetworkManager.Singleton;
             if (network == null || !network.IsServer)
             {
-                return;
+                return false;
             }
 
             Collider zone = GetComponent<Collider>();
+            bool anyInside = false;
             // 补上 Trigger 漏报的活人；人已经走出球体、或不再 Alive，下面的遍历会删掉。
             foreach (var pair in network.ConnectedClients)
             {
@@ -329,14 +412,41 @@ namespace World
                     continue;
                 }
 
+                anyInside = true;
                 TeamId team = PlayerRegistry.GetPlayerTeam(clientId);
                 if (team == TeamId.Red)
                 {
-                    redCount += weight;
+                    redCount++;
                 }
                 else if (team == TeamId.Blue)
                 {
-                    blueCount += weight;
+                    blueCount++;
+                }
+            }
+
+            return anyInside;
+        }
+
+        /// <summary>灰盒人数。只在没有真人、且调试模式打开时由 EvaluateActivePlayers 调用。</summary>
+        void ScoreMockOccupants(out int redCount, out int blueCount)
+        {
+            redCount = 0;
+            blueCount = 0;
+            for (int i = 0; i < _mockOccupants.Count; i++)
+            {
+                MockOccupant occupant = _mockOccupants[i];
+                if (occupant.Life != PlayerLifeState.Alive)
+                {
+                    continue;
+                }
+
+                if (occupant.Team == TeamId.Red)
+                {
+                    redCount++;
+                }
+                else if (occupant.Team == TeamId.Blue)
+                {
+                    blueCount++;
                 }
             }
         }
