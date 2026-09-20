@@ -1710,6 +1710,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   defaultDecalPrefab: {fileID: 4084122747219282401, guid: dde9b31964c39a5479b466cb1a102285, type: 3}
+  decalScale: 0.03
   fleshHitParticle: {fileID: 0}
   audioSource: {fileID: 866105863}
   fleshHitSound: {fileID: 8300000, guid: 04922595d75ca2f4ea83fd2ee556646b, type: 3}

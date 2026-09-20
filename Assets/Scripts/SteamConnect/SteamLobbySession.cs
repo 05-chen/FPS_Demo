@@ -550,9 +550,17 @@ public sealed class SteamLobbySession : MonoBehaviour
             yield break;
         }
 
+        // 主机新开一局时即使人还停在对局场景，也必须再 LoadScene 一次。
+        // 否则场景里的 NetworkObject 带着上一局的 Owner/Progress，客户端顶栏不会更新。
+        bool forceReloadForNewRound = _hostOpenedNewRound;
         string current = SceneManager.GetActiveScene().name;
-        if (current != sceneName)
+        if (current != sceneName || forceReloadForNewRound)
         {
+            if (forceReloadForNewRound && current == sceneName)
+            {
+                Notify("主机新开一局，重新加载对局场景以同步双方顶栏。");
+            }
+
             bool loaded = false;
             void OnLoaded(string loadedName, LoadSceneMode mode, List<ulong> completed, List<ulong> timedOut)
             {

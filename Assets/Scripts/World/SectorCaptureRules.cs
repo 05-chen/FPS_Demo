@@ -245,8 +245,8 @@ namespace World
 
         /// <summary>
         /// 顶栏填充：红条自左向右，蓝条自右向左。
-        /// 双方都在圈内：强制红蓝拼接，消灭灰底（不论是否曾占领）。
-        /// 灰底仅在从未占领且单方/无人时出现。
+        /// 双方都在圈内：按 CaptureProgress 画红蓝无缝条（人头只影响涨速，不改填色）。
+        /// 灰底仅在从未占领且进度仍为 0、且单方/无人时出现。
         /// 上锁已占领：所属阵营纯色。
         /// </summary>
         public static void ToHudBarFills(
@@ -277,13 +277,13 @@ namespace World
                 return;
             }
 
-            // 双方对峙：按圈内人头比例切开，不沿用旧的 CaptureProgress。
-            // 1 对 1 就是各一半；2 对 1 就是 2/3 与 1/3。进度仍由速率去推，条只表示此刻谁人多。
+            // 双方对峙：条跟着真实 CaptureProgress，不要用人头比例临时顶替。
+            // 1v1 人数相等时进度本来就会冻住；若改画 50/50，死后切回真实进度会像「被清成灰再从头涨」。
+            // 人头只影响速率（CalculateCaptureRate），不影响这一格怎么填色。
             if (IsContested(redCount, blueCount))
             {
                 showGray = false;
-                float total = redCount + blueCount;
-                redFill = redCount / total;
+                redFill = ToHudFillAmount(progress);
                 blueFill = 1f - redFill;
                 return;
             }
@@ -296,7 +296,16 @@ namespace World
                 return;
             }
 
-            // 从未占领且单方/无人：灰底 + 两侧向中间填
+            // 从未打满过，但已经有拉锯进度：继续用红蓝无缝条，避免死后突然变灰底再从 0 涨。
+            if (Mathf.Abs(progress) > 0.0001f)
+            {
+                showGray = false;
+                redFill = ToHudFillAmount(progress);
+                blueFill = 1f - redFill;
+                return;
+            }
+
+            // 从未占领且进度仍在 0：灰底 + 两侧向中间填
             showGray = true;
             redFill = ToHudRedFill(progress);
             blueFill = ToHudBlueFill(progress);

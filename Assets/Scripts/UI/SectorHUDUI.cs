@@ -263,12 +263,38 @@ namespace UI
 
         void RefreshManagerCache()
         {
-            if (_allManagers != null && _allManagers.Length >= 5)
+            if (_allManagers != null && _allManagers.Length >= 5 && ManagersStillValid(_allManagers))
             {
                 return;
             }
 
             _allManagers = SectorManager.FindAll();
+        }
+
+        /// <summary>开新局或场景重载后，丢掉旧的 SectorManager 引用。</summary>
+        public static void InvalidateManagerCache()
+        {
+            SectorHUDUI[] huds = FindObjectsByType<SectorHUDUI>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+            for (int i = 0; i < huds.Length; i++)
+            {
+                if (huds[i] != null)
+                {
+                    huds[i]._allManagers = null;
+                }
+            }
+        }
+
+        static bool ManagersStillValid(SectorManager[] managers)
+        {
+            for (int i = 0; i < managers.Length; i++)
+            {
+                if (managers[i] == null || !managers[i].IsSpawned)
+                {
+                    return false;
+                }
+            }
+
+            return true;
         }
 
         void RefreshTimer()

@@ -81,9 +81,18 @@ namespace World
             if (Instance != null && Instance.IsSpawned)
             {
                 Instance.ServerBeginNewRound();
+                Instance.NotifyMatchResetClientRpc();
             }
 
             GameLog.Info("Match", "主机新开一局，占领进度与倒计时已重置。");
+        }
+
+        /// <summary>通知所有客户端清掉顶栏缓存，避免还画着上一局的 SectorManager。</summary>
+        [ClientRpc]
+        public void NotifyMatchResetClientRpc()
+        {
+            UI.SectorHUDUI.InvalidateManagerCache();
+            GameLog.Info("Match", "客户端已收到开局重置通知。");
         }
 
         /// <summary>主机新开一局时清倒计时和胜负标记，否则占点 Update 会一直停着。</summary>

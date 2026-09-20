@@ -167,7 +167,13 @@ public class SectorLogicTests
         Expect("从未占领单方推进露灰（红+灰）", virginGray && Mathf.Abs(virginRed - 0.5f) < 0.0001f && Mathf.Abs(virginBlue) < 0.0001f);
 
         SectorCaptureRules.ToHudBarFills(TeamId.None, 0f, false, false, 1, 1, out float cRed, out float cBlue, out bool cGray);
-        Expect("开局中立双方入场强制红蓝拼接不露灰", !cGray && Mathf.Abs(cRed + cBlue - 1f) < 0.0001f && Mathf.Abs(cRed - 0.5f) < 0.0001f);
+        Expect("开局中立双方入场按进度画条（0 进度=各半）不露灰", !cGray && Mathf.Abs(cRed + cBlue - 1f) < 0.0001f && Mathf.Abs(cRed - 0.5f) < 0.0001f);
+
+        SectorCaptureRules.ToHudBarFills(TeamId.None, 0.4f, false, false, 1, 1, out float tugCRed, out float tugCBlue, out bool tugCGray);
+        Expect("争执中途进度保留在条上，不用人头比例覆盖", !tugCGray && Mathf.Abs(tugCRed - 0.7f) < 0.0001f && Mathf.Abs(tugCBlue - 0.3f) < 0.0001f);
+
+        SectorCaptureRules.ToHudBarFills(TeamId.None, 0.4f, false, false, 1, 0, out float afterKillRed, out float afterKillBlue, out bool afterKillGray);
+        Expect("一方死后仍保留先前进度，不退回灰底从 0 涨", !afterKillGray && Mathf.Abs(afterKillRed - 0.7f) < 0.0001f);
 
         Expect(
             "灰底仅单方/无人且从未占领",

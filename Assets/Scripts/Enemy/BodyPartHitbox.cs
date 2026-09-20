@@ -69,12 +69,29 @@ public class BodyPartHitbox : MonoBehaviour
             if (hitbox == null)
             {
                 // 战区 / 出生区等 Trigger 不是遮挡物：穿透继续找部位盒。
-                // 墙/地面等实心碰撞体才作为范围哨兵终止，避免把身后别人的头算进来。
                 if (col.isTrigger)
                 {
                     continue;
                 }
 
+                // 角色/假人身上的衣服、装备等实心盒没有 Hitbox，不能当墙；
+                // 否则手臂命中后会被它们挡住，扫不到后面的躯干。
+                if (BelongsToDamageableCharacter(col))
+                {
+                    Transform characterRoot = col.transform.root;
+                    if (lockedRoot == null)
+                    {
+                        lockedRoot = characterRoot;
+                    }
+                    else if (characterRoot != lockedRoot)
+                    {
+                        break;
+                    }
+
+                    continue;
+                }
+
+                // 真正的环境实心碰撞体才终止，避免穿墙打到身后别人。
                 break;
             }
 
@@ -146,6 +163,12 @@ public class BodyPartHitbox : MonoBehaviour
                 return 1;
         }
     }
+
+    /// <summary>碰撞体是否挂在可受伤角色（玩家或假人）上。</summary>
+    static bool BelongsToDamageableCharacter(Collider collider) =>
+        collider != null
+        && (collider.GetComponentInParent<PlayerHealth>() != null
+            || collider.GetComponentInParent<PracticeDummyHealth>() != null);
 
     sealed class DistanceComparer : System.Collections.Generic.IComparer<RaycastHit>
     {
