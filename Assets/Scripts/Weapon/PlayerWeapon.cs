@@ -175,7 +175,8 @@ public class PlayerWeapon : NetworkBehaviour
         ExecuteHitscan(origin, direction);
     }
 
-    static readonly RaycastHit[] HitscanHits = new RaycastHit[24];
+    // 手臂分上臂/前臂/手多节后，一根射线可能沿肢体命中多次，留够槽位避免溢出丢命中。
+    static readonly RaycastHit[] HitscanHits = new RaycastHit[32];
 
     void ExecuteHitscan(Vector3 origin, Vector3 direction)
     {

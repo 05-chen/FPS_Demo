@@ -8,6 +8,8 @@ namespace Weapon
 
         [Header("占位特效与贴图")]
         public GameObject defaultDecalPrefab;
+        [Tooltip("弹孔大小（米）。Quad 本身是 1x1，0.03 约等于 3 厘米。")]
+        [SerializeField] float decalScale = 0.03f;
         public ParticleSystem fleshHitParticle;
 
         [Header("占位音效")]
@@ -170,7 +172,8 @@ namespace Weapon
             }
 
             decal.transform.SetParent(null, true);
-            decal.transform.localScale = Vector3.one * 0.12f;
+            // 尺寸由本脚本统一决定：预制体上的缩放会在每次生成时被这里覆盖。
+            decal.transform.localScale = Vector3.one * Mathf.Max(0.001f, decalScale);
             Destroy(decal, 8f);
         }
 

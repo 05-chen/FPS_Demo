@@ -10,7 +10,8 @@ using Weapon;
 /// </summary>
 public class Projectile : NetworkBehaviour
 {
-    static readonly RaycastHit[] SweepHits = new RaycastHit[24];
+    // 与 Hitscan 同容量：多节肢体 Hitbox 会让单条扫描出现更多命中。
+    static readonly RaycastHit[] SweepHits = new RaycastHit[32];
 
     [Header("Projectile Settings")]
     [SerializeField] float speed = 50f;
