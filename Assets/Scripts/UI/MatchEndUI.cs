@@ -64,7 +64,7 @@ namespace UI
             RuntimeUiFactory.CreateText(
                 _canvasRoot.transform,
                 "Hint",
-                "点击任意位置返回大厅",
+                "点击任意位置继续",
                 22,
                 new Vector2(0f, -160f),
                 new Vector2(900f, 40f),
@@ -88,7 +88,7 @@ namespace UI
             }
         }
 
-        /// <summary>先关掉播报，再打开大厅，避免两层 UI 叠在同一屏。</summary>
+        /// <summary>关掉播报并进入等待下一局。结算不会结束对话，绝对不在这里断网 </summary>
         void Dismiss()
         {
             _awaitingDismiss = false;
@@ -97,7 +97,7 @@ namespace UI
                 _canvasRoot.SetActive(false);
             }
 
-            World.MatchGameManager.ContinueAfterMatchEnd();
+            World.MatchGameManager.NotifyMatchEndDismissed();
         }
 
         /// <summary>winner=None 为平局；按本地玩家阵营显示胜/负。</summary>

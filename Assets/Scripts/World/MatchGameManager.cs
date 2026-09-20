@@ -212,21 +212,19 @@ namespace World
             GameLog.Info("Match", "收到结算 RPC winner=" + winner + " sweep=" + isSweep);
         }
 
-        /// <summary>结算界面被点击后才回大厅。自动倒计时会和播报叠在同一屏。</summary>
-        public static void ContinueAfterMatchEnd()
+        /// <summary>
+        /// 结算界面被点击。只切换 UI，保持 NGO 连接与 Steam 大厅不动。
+        /// 对局结束不等于退出房间：断网只允许由暂停菜单的「退出到大厅」触发。
+        /// </summary>
+        public static void NotifyMatchEndDismissed()
         {
-            ReturnToLobby();
-        }
-
-        static void ReturnToLobby()
-        {
-            SteamLobbyUI lobbyUi = FindFirstObjectByType<SteamLobbyUI>(FindObjectsInactive.Include);
-            if (lobbyUi != null)
+            if (SteamLobbyUI.Instance != null)
             {
-                lobbyUi.ReturnToLobby();
+                SteamLobbyUI.Instance.EnterPostMatchWaiting();
                 return;
             }
 
+            //单机练习没有会话，退回练习场景是安全的(没有远端会因此掉线)
             if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsListening)
             {
                 NetworkManager.Singleton.Shutdown();

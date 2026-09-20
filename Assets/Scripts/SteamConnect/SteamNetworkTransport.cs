@@ -30,6 +30,13 @@ public sealed class SteamNetworkTransport : NetworkTransport
     HSteamNetPollGroup _pollGroup = HSteamNetPollGroup.Invalid;
     HSteamNetConnection _serverConnection = HSteamNetConnection.Invalid;
     readonly HashSet<HSteamNetConnection> _clientConnections = new HashSet<HSteamNetConnection>();
+
+    /// <summary>
+    /// clientId → 远端 SteamID。Steam 认证过的真实身份。
+    /// 重连会换 clientId（等于 Steam 连接句柄），但 SteamID 不变，靠它认出「还是同一个人」。
+    /// </summary>
+    readonly Dictionary<ulong, ulong> _remoteSteamIds = new Dictionary<ulong, ulong>();
+
     readonly Queue<PendingEvent> _events = new Queue<PendingEvent>(32);
     readonly IntPtr[] _messageBuffer = new IntPtr[MessageBufferSize];
     Callback<SteamNetConnectionStatusChangedCallback_t> _statusChanged;
@@ -188,6 +195,7 @@ public sealed class SteamNetworkTransport : NetworkTransport
 
         SteamNetworkingSockets.CloseConnection(connection, 0, "DisconnectRemoteClient", false);
         _clientConnections.Remove(connection);
+        _remoteSteamIds.Remove(clientId);
     }
 
     public override void DisconnectLocalClient()
@@ -227,6 +235,7 @@ public sealed class SteamNetworkTransport : NetworkTransport
         }
 
         _clientConnections.Clear();
+        _remoteSteamIds.Clear();
 
         if (_serverConnection != HSteamNetConnection.Invalid)
         {
@@ -316,11 +325,41 @@ public sealed class SteamNetworkTransport : NetworkTransport
         if (_isServer)
         {
             _clientConnections.Add(connection);
-            Enqueue(NetworkEvent.Connect, ToClientId(connection), null, 0, false);
+            ulong clientId = ToClientId(connection);
+            RememberRemoteSteamId(connection, clientId);
+            Enqueue(NetworkEvent.Connect, clientId, null, 0, false);
             return;
         }
 
         Enqueue(NetworkEvent.Connect, ServerClientId, null, 0, false);
+    }
+
+    /// <summary>
+    /// 连接建立时记下对端 SteamID。时机早于 NGO 的 OnClientConnected 回调，
+    /// 所以业务层拿到 Connect 事件时已经能查到身份。
+    /// </summary>
+    void RememberRemoteSteamId(HSteamNetConnection connection, ulong clientId)
+    {
+        if (!SteamNetworkingSockets.GetConnectionInfo(connection, out SteamNetConnectionInfo_t info))
+        {
+            GameLog.Warn(LogCategory, "拿不到连接信息，无法记录对端 SteamID。");
+            return;
+        }
+
+        CSteamID steamId = info.m_identityRemote.GetSteamID();
+        if (steamId.IsValid())
+        {
+            _remoteSteamIds[clientId] = steamId.m_SteamID;
+        }
+    }
+
+    /// <summary>
+    /// 查某个 clientId 的远端 SteamID。重连后 clientId 会变，SteamID 不会，
+    /// 业务层用它把重连的玩家认回原来的身份（阵营、队伍等）。
+    /// </summary>
+    public bool TryGetRemoteSteamId(ulong clientId, out ulong steamId)
+    {
+        return _remoteSteamIds.TryGetValue(clientId, out steamId);
     }
 
     /// <summary>最近一次 Steam 断开的中文说明。给掉线提示界面用，用完即清。</summary>
@@ -414,7 +453,9 @@ public sealed class SteamNetworkTransport : NetworkTransport
         if (_isServer)
         {
             _clientConnections.Remove(connection);
-            Enqueue(NetworkEvent.Disconnect, ToClientId(connection), null, 0, false);
+            ulong clientId = ToClientId(connection);
+            _remoteSteamIds.Remove(clientId);
+            Enqueue(NetworkEvent.Disconnect, clientId, null, 0, false);
         }
         else
         {

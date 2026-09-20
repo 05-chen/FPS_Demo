@@ -34,9 +34,20 @@ public sealed class SteamLobbySession : MonoBehaviour
     public event System.Action ReturnedToLobby;
 
     public bool IsOfflineSession { get; private set; }
+    /// <summary>
+    /// 本局是否已开始。**仅主机侧可靠**：只有主机跑 LoadMatchAndSpawn 会置 true，
+    /// 客户端本机恒为 false，不要在客户端拿它做判断（M1 的老坑）。
+    /// </summary>
     public bool GameplayStarted => _gameplayStarted;
 
     readonly Dictionary<ulong, TeamId> _chosenTeams = new Dictionary<ulong, TeamId>();
+
+    /// <summary>
+    /// SteamID → 阵营。clientId 是 Steam 连接句柄，重连必换新号，
+    /// 所以阵营要按 SteamID 再存一份，才能把重连的玩家认回同一阵营。
+    /// </summary>
+    readonly Dictionary<ulong, TeamId> _steamTeamChoices = new Dictionary<ulong, TeamId>();
+
     bool _matchLoadStarted;
     bool _gameplayStarted;
     bool _hostOpenedNewRound;
@@ -182,6 +193,9 @@ public sealed class SteamLobbySession : MonoBehaviour
         StopMatchLoad();
         ResetMatchChoices();
         IsOfflineSession = false;
+
+        // 死亡黑幕是 DontDestroyOnLoad 且层级(90)高于大厅(20)，不清掉会盖死大厅界面。
+        UI.CombatStatusUI.Instance?.Hide();
 
         if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsListening)
         {
@@ -495,6 +509,7 @@ public sealed class SteamLobbySession : MonoBehaviour
         }
 
         _chosenTeams[clientId] = team;
+        RememberSteamChoice(clientId, team);
         Notify("玩家 " + clientId + " 选择了" + TeamIdUtil.DisplayName(team) + "。");
 
         if (_gameplayStarted)
@@ -553,8 +568,12 @@ public sealed class SteamLobbySession : MonoBehaviour
         // 主机新开一局时即使人还停在对局场景，也必须再 LoadScene 一次。
         // 否则场景里的 NetworkObject 带着上一局的 Owner/Progress，客户端顶栏不会更新。
         bool forceReloadForNewRound = _hostOpenedNewRound;
+
+        // 联机对局禁止 Skip：走 else 分支时场景里的 NetworkObject 会继续带着上一局的
+        // 身份，客户端顶栏读到脏数据。单机练习没有需要同步的对端，才允许 Skip。
+        bool networkedMatch = !IsOfflineSession;
         string current = SceneManager.GetActiveScene().name;
-        if (current != sceneName || forceReloadForNewRound)
+        if (current != sceneName || forceReloadForNewRound || networkedMatch)
         {
             if (forceReloadForNewRound && current == sceneName)
             {
@@ -596,7 +615,7 @@ public sealed class SteamLobbySession : MonoBehaviour
         }
         else
         {
-            Notify("已在对局场景，跳过二次 LoadScene。");
+            Notify("单机练习已在对局场景，跳过二次 LoadScene。");
         }
 
         float spawnDeadline = Time.realtimeSinceStartup + 5f;
@@ -634,6 +653,7 @@ public sealed class SteamLobbySession : MonoBehaviour
     void ResetMatchChoices()
     {
         _chosenTeams.Clear();
+        _steamTeamChoices.Clear();
         _matchLoadStarted = false;
         _gameplayStarted = false;
         _hostOpenedNewRound = false;
@@ -750,14 +770,16 @@ public sealed class SteamLobbySession : MonoBehaviour
                 // 对局还在。重连只复活，进度由主机上的对局状态决定，这里不能清。
                 if (Managers.SpawnManager.Instance != null && Managers.SpawnManager.Instance.IsSpawned)
                 {
-                    if (_chosenTeams.TryGetValue(clientId, out TeamId savedTeam))
+                    // 人还在房间里就说明阵营早已确定过：先按 clientId、再按 SteamID 找回，
+                    // 绝不重复让玩家选（重选会改掉已同步的阵营）。
+                    if (TryResolveRememberedTeam(clientId, out TeamId savedTeam))
                     {
-                        Notify("对手已重连，按已记录阵营自动复活。");
+                        Notify("对手已重连，按记录阵营自动复活，不重新选阵营。");
                         Managers.SpawnManager.Instance.SpawnForClient(savedTeam, clientId);
                     }
                     else
                     {
-                        Notify("对手已重连。仅通知该玩家选择阵营，不会把主机拉回大厅。");
+                        Notify("对手已重连，但没有本局阵营记录，通知他选择阵营。");
                         Managers.SpawnManager.Instance.RequestFactionSelectForClient(clientId);
                     }
                 }
@@ -772,16 +794,67 @@ public sealed class SteamLobbySession : MonoBehaviour
             SetState(LobbySessionState.InSession);
             Notify("对手已加入，进入选阵营。");
             NetworkStarted?.Invoke();
+
+            // 客户端拿不到权威的对局状态，无法自己判断该不该弹面板；
+            // 由主机在这里定向通知，避免重连时两端各弹一次。
+            if (Managers.SpawnManager.Instance != null && Managers.SpawnManager.Instance.IsSpawned)
+            {
+                Managers.SpawnManager.Instance.RequestFactionSelectForClient(clientId);
+            }
+            else
+            {
+                GameLog.Warn(LogCategory, "SpawnManager 未就绪，新玩家可能看不到选阵营界面。");
+            }
+
             return;
         }
 
         SetState(LobbySessionState.InSession);
         Notify("已连接到主机。");
-        if (!_gameplayStarted)
+        // 客户端本机的 _gameplayStarted 恒为 false（只有主机跑 LoadMatchAndSpawn 会置 true），
+        // 用它判断会误弹面板。这里什么都不做，完全等主机的定向通知。
+    }
+
+    /// <summary>
+    /// 找回这位客户端本局的阵营。先查 clientId（同一次连接内有效），
+    /// 再查 SteamID（重连后 clientId 换号，但人还是同一个人）。
+    /// </summary>
+    bool TryResolveRememberedTeam(ulong clientId, out TeamId team)
+    {
+        if (_chosenTeams.TryGetValue(clientId, out team))
         {
-            NetworkStarted?.Invoke();
+            return true;
+        }
+
+        SteamNetworkTransport transport = ActiveTransport;
+        if (transport != null
+            && transport.TryGetRemoteSteamId(clientId, out ulong steamId)
+            && _steamTeamChoices.TryGetValue(steamId, out team))
+        {
+            // 把阵营补回 clientId 视图，后续 TryStartMatch / 复活都走同一份记录。
+            _chosenTeams[clientId] = team;
+            return true;
+        }
+
+        team = TeamId.None;
+        return false;
+    }
+
+    /// <summary>按 SteamID 另存一份阵营，供重连时认人。</summary>
+    void RememberSteamChoice(ulong clientId, TeamId team)
+    {
+        SteamNetworkTransport transport = ActiveTransport;
+        if (transport != null && transport.TryGetRemoteSteamId(clientId, out ulong steamId))
+        {
+            _steamTeamChoices[steamId] = team;
         }
     }
+
+    /// <summary>当前 NetworkManager 上的 Steam 传输层。单机练习时是 UnityTransport，会返回 null。</summary>
+    static SteamNetworkTransport ActiveTransport =>
+        NetworkManager.Singleton != null
+            ? NetworkManager.Singleton.NetworkConfig.NetworkTransport as SteamNetworkTransport
+            : null;
 
     void OnNetClientDisconnected(ulong clientId)
     {
@@ -846,6 +919,25 @@ public sealed class SteamLobbySession : MonoBehaviour
                 Destroy(player.gameObject);
             }
         }
+    }
+
+    /// <summary>一局结束后保持连接：清除本局选择，等主机开下一局。</summary>
+    public void PrepareNextRoundKeepingSession()
+    {
+        if (NetworkManager.Singleton == null || !NetworkManager.Singleton.IsListening)
+        {
+            return;
+        }
+
+        StopMatchLoad();
+        _chosenTeams.Clear();
+        // 新一局的阵营要重新选，旧的 SteamID 记录必须一并清掉，否则重连会误用上一局的阵营。
+        _steamTeamChoices.Clear();
+        _matchLoadStarted = false;
+        _gameplayStarted = false;
+
+        // 开下一局属于「主机新开一局」，必须让 LoadMatchAndSpawn 重载场景并重置占领进度与倒计时。
+        _hostOpenedNewRound = NetworkManager.Singleton.IsServer;
     }
 
     void Notify(string message)

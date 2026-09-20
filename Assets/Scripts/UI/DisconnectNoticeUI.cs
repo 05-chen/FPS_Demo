@@ -102,7 +102,7 @@ namespace UI
                 return;
             }
 
-            SteamLobbyUI.Instance?.ReturnToLobby();
+            SteamLobbyUI.Instance?.QuitToLobby();
         }
 
         /// <summary>弹出掉线原因。reason 由主机侧的 Steam 断开原因翻译而来。</summary>

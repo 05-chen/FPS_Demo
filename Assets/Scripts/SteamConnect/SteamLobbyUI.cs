@@ -46,7 +46,7 @@ public sealed class SteamLobbyUI : MonoBehaviour
         BuildUi();
         DisableScenePlayers();
         GameplayGate.Block();
-        PauseMenuUI.Create(transform, ReturnToLobby);
+        PauseMenuUI.Create(transform, QuitToLobby);
         HideFactionSelect();
     }
 
@@ -250,9 +250,9 @@ public sealed class SteamLobbyUI : MonoBehaviour
         OnStatusChanged("邀请码必须是 6 位，例如 K7M2QX。");
     }
 
-    public void ReturnToLobby()
+    /// <summary>玩家退出房间：真正断开连接并回到开房大厅。只有这条路会断网。</summary>
+    public void QuitToLobby()
     {
-        // 单机没有 NGO 会话时，LeaveSession 仍会触发 ReturnedToLobby -> ShowLobby
         if (SteamLobbySession.Instance != null)
         {
             SteamLobbySession.Instance.LeaveSession();
@@ -260,6 +260,40 @@ public sealed class SteamLobbyUI : MonoBehaviour
         }
 
         ShowLobby();
+    }
+
+    /// <summary>
+    /// 结算后进入等待下一局：连接保持不变，直接在对局场景里弹出选阵营。
+    /// 双方重新选完阵营后，TryStartMatch 会自动重载场景并开新一局。
+    /// </summary>
+    public void EnterPostMatchWaiting()
+    {
+        if (SteamLobbySession.Instance != null)
+        {
+            SteamLobbySession.Instance.PrepareNextRoundKeepingSession();
+        }
+
+        // 不能复用 ShowFactionSelect()：它会打开大厅俯视相机（坐标属于大厅场景）并抢走
+        // 玩家相机的 AudioListener。结算时人还在对局场景，只需要把面板弹出来。
+        // 大厅视觉已由 HideForMatchEnd 收起，这里不再碰相机。
+        UI.FactionSelectUI factionUi = UI.FactionSelectUI.Instance;
+        if (factionUi == null)
+        {
+            factionUi = FindFirstObjectByType<UI.FactionSelectUI>(FindObjectsInactive.Include);
+        }
+
+        if (factionUi == null)
+        {
+            OnStatusChanged("找不到选阵营界面，无法开始下一局。");
+            return;
+        }
+
+        factionUi.gameObject.SetActive(true);
+        factionUi.ShowUI(true); // ShowUI(true) 内部已做 GameplayGate.Block 与解锁鼠标
+
+        // 结算时若玩家正处于死亡/倒地，伤情面板会留在屏幕上；下一局开始前先清掉。
+        UI.CombatStatusUI.Instance?.Hide();
+        OnStatusChanged("对局结束，请重新选择阵营开始下一局。");
     }
 
     /// <summary>结算播报显示期间先收起大厅，等玩家点击后再打开。</summary>
@@ -281,6 +315,7 @@ public sealed class SteamLobbyUI : MonoBehaviour
         }
         PauseGate.Resume();
         GameplayGate.Block();
+        UI.CombatStatusUI.Instance?.Hide(); // 兜底：任何回到大厅的路径都不该带着死亡黑幕
 
         if (_lobbyCanvasRoot != null)
         {
@@ -325,13 +360,12 @@ public sealed class SteamLobbyUI : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// 主机侧需要选阵营时弹面板。客户端不再走这里（它拿不到权威的对局状态），
+    /// 改由主机定向发 RequestFactionSelectForClient。
+    /// </summary>
     void ShowOnlineFactionSelect()
     {
-        if (SteamLobbySession.Instance != null && SteamLobbySession.Instance.GameplayStarted)
-        {
-            return;
-        }
-
         ShowFactionSelect();
         OnStatusChanged("请选择红方或蓝方。");
     }
@@ -339,12 +373,16 @@ public sealed class SteamLobbyUI : MonoBehaviour
     void ShowFactionSelect()
     {
         HideLobbyVisuals(hideOverviewCamera: false);
-        if (_overviewCamera != null)
+
+        // 只有人还在大厅场景时才切俯视相机。结算后重新开局时人已经在对局场景，
+        // 打开这台相机会把镜头拉到大厅坐标，还会通过 SetExclusiveAudioListener
+        // 关掉玩家相机的 AudioListener（表现为对局中突然没有声音）。
+        if (IsInLobbyScene() && _overviewCamera != null)
         {
             _overviewCamera.tag = "MainCamera";
+            RuntimeUiFactory.SetCameraActive(_overviewCamera, true);
         }
 
-        RuntimeUiFactory.SetCameraActive(_overviewCamera, true);
         GameplayGate.Block();
         Cursor.lockState = CursorLockMode.None;
         Cursor.visible = true;
@@ -365,6 +403,10 @@ public sealed class SteamLobbyUI : MonoBehaviour
         factionUi.gameObject.SetActive(true);
         factionUi.ShowUI(true);
     }
+
+    /// <summary>当前是否还在大厅（单机练习）场景。俯视相机只在大厅场景有意义。</summary>
+    static bool IsInLobbyScene() =>
+        SceneManager.GetActiveScene().name.Equals(GameScenes.OfflinePractice);
 
     void HideFactionSelect()
     {
