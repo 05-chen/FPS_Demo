@@ -84,6 +84,16 @@ public class SectorLogicTests
     }
 
     [Test]
+    public void Contested_OnlyWhenBothTeamsHaveEqualWeight()
+    {
+        Expect("双方相等且都有人才算争夺", SectorCaptureRules.IsContested(2, 2));
+        Expect("红方人数占优不是争夺", !SectorCaptureRules.IsContested(3, 1));
+        Expect("蓝方人数占优不是争夺", !SectorCaptureRules.IsContested(1, 3));
+        Expect("单方有人不是争夺", !SectorCaptureRules.IsContested(2, 0));
+        Expect("无人不是争夺", !SectorCaptureRules.IsContested(0, 0));
+    }
+
+    [Test]
     public void Frontline_B_Unlocks_After_A_Owned_By_Red()
     {
         bool redOpen = SectorCaptureRules.IsActiveFrontlineFor(

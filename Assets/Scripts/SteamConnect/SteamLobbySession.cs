@@ -632,6 +632,10 @@ public sealed class SteamLobbySession : MonoBehaviour
             yield break;
         }
 
+        // 场景重载会把 Testcene 里内置摆放的 Player 占位体重新实例化，NGO 会把它当 in-scene
+        // NetworkObject 生成。先清掉，否则真正生成的玩家之外会多出一个人。
+        Managers.SpawnManager.Instance.PurgeScenePlacedPlayers();
+
         foreach (KeyValuePair<ulong, TeamId> pair in _chosenTeams)
         {
             Managers.SpawnManager.Instance.SpawnForClient(pair.Value, pair.Key);

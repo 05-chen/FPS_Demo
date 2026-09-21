@@ -361,13 +361,21 @@ public sealed class SteamLobbyUI : MonoBehaviour
     }
 
     /// <summary>
+    /// 主机定向通知客户端弹选阵营。与本机 NetworkStarted 共用同一条路径，确保会关掉大厅面板。
+    /// </summary>
+    public void ShowFactionSelectRequestedByServer()
+    {
+        ShowFactionSelect();
+        OnStatusChanged("请选择红方或蓝方。");
+    }
+
+    /// <summary>
     /// 主机侧需要选阵营时弹面板。客户端不再走这里（它拿不到权威的对局状态），
     /// 改由主机定向发 RequestFactionSelectForClient。
     /// </summary>
     void ShowOnlineFactionSelect()
     {
-        ShowFactionSelect();
-        OnStatusChanged("请选择红方或蓝方。");
+        ShowFactionSelectRequestedByServer();
     }
 
     void ShowFactionSelect()

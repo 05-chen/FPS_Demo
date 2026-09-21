@@ -3,6 +3,7 @@ using Unity.Netcode;
 using System;
 using System.Collections;
 using Core;
+using Enemy;
 
 public enum PlayerLifeState
 {
@@ -193,6 +194,34 @@ public class PlayerHealth : NetworkBehaviour
         }
 
         EnterDownedState();
+    }
+
+    /// <summary>
+    /// 按命中部位处理玩家伤害。躯干命中直接进入倒地，和假人的躯干伤情规则保持一致；
+    /// 服务器仍是唯一可以修改生命状态的一方。
+    /// </summary>
+    public void TakeDamage(int damageAmount, DetailedBodyPart hitPart)
+    {
+        if (!HasDamageAuthority) return;
+        if (IsDead) return;
+
+        if (hitPart == DetailedBodyPart.Head)
+        {
+            TakeDamage(damageAmount, true);
+            return;
+        }
+
+        if (hitPart == DetailedBodyPart.Torso)
+        {
+            if (!IsDowned)
+            {
+                EnterDownedState();
+            }
+
+            return;
+        }
+
+        TakeDamage(damageAmount);
     }
 
     public void KillFromBleedOut()

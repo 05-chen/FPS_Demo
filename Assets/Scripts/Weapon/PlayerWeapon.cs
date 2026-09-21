@@ -340,6 +340,12 @@ public class PlayerWeapon : NetworkBehaviour
             && bestHitbox.bodyPart == DetailedBodyPart.Head
             && bestHitbox.GetComponentInParent<PlayerHealth>() == closestHealth;
 
+        if (bestHitbox != null && bestHitbox.GetComponentInParent<PlayerHealth>() == closestHealth)
+        {
+            closestHealth.TakeDamage(hitscanDamage, bestHitbox.bodyPart);
+            return;
+        }
+
         closestHealth.TakeDamage(hitscanDamage, instantKill);
     }
 

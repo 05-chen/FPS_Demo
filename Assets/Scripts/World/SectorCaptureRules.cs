@@ -99,10 +99,10 @@ namespace World
         }
 
         /// <summary>
-        /// 双方都在核心圈内即为拉锯（人数差决定净速率，相等则僵持）。
+        /// 双方都在核心圈内且人数相等才是拉锯；人数有差时由优势方推进。
         /// </summary>
         public static bool IsContested(int redCount, int blueCount) =>
-            redCount > 0 && blueCount > 0;
+            redCount > 0 && redCount == blueCount;
 
         /// <summary>
         /// 顶栏是否按「上锁纯色」渲染：中立且不可争夺，或后方保护（朝敌邻居已是己方）。

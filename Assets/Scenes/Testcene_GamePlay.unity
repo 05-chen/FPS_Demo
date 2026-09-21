@@ -2611,8 +2611,8 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   panel: {fileID: 1888709412}
-  joinRedButton: {fileID: 1888710103}
-  joinBlueButton: {fileID: 1888710203}
+  joinRedButton: {fileID: 0}
+  joinBlueButton: {fileID: 0}
 --- !u!1 &1830252480
 GameObject:
   m_ObjectHideFlags: 0
@@ -2870,7 +2870,6 @@ GameObject:
   - component: {fileID: 1888710101}
   - component: {fileID: 1888710104}
   - component: {fileID: 1888710102}
-  - component: {fileID: 1888710103}
   m_Layer: 5
   m_Name: JoinRedButton
   m_TagString: Untagged
@@ -2928,18 +2927,6 @@ MonoBehaviour:
   m_FillOrigin: 0
   m_UseSpriteMesh: 0
   m_PixelsPerUnitMultiplier: 1
---- !u!114 &1888710103
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1888710100}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 4e29b1a8efbd4b44bb3f3716e224b10f, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
 --- !u!222 &1888710104
 CanvasRenderer:
   m_ObjectHideFlags: 0
@@ -3038,7 +3025,6 @@ GameObject:
   - component: {fileID: 1888710201}
   - component: {fileID: 1888710204}
   - component: {fileID: 1888710202}
-  - component: {fileID: 1888710203}
   m_Layer: 5
   m_Name: JoinBlueButton
   m_TagString: Untagged
@@ -3096,18 +3082,6 @@ MonoBehaviour:
   m_FillOrigin: 0
   m_UseSpriteMesh: 0
   m_PixelsPerUnitMultiplier: 1
---- !u!114 &1888710203
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1888710200}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 4e29b1a8efbd4b44bb3f3716e224b10f, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
 --- !u!222 &1888710204
 CanvasRenderer:
   m_ObjectHideFlags: 0

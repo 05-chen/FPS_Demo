@@ -155,7 +155,7 @@ namespace Weapon
 
             GameObject decal = Instantiate(
                 defaultDecalPrefab,
-                point + normal * 0.03f,
+                point + normal * 0.01f,
                 Quaternion.LookRotation(-normal));
 
             if (decal == null)

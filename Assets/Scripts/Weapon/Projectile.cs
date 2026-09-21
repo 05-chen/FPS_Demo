@@ -219,7 +219,14 @@ public class Projectile : NetworkBehaviour
             : null;
         if (targetHealth != null && !IsShooter(targetHealth))
         {
-            targetHealth.TakeDamage(damage, isHeadshot);
+            if (hitbox != null && hitbox.GetComponentInParent<PlayerHealth>() == targetHealth)
+            {
+                targetHealth.TakeDamage(damage, hitbox.bodyPart);
+            }
+            else
+            {
+                targetHealth.TakeDamage(damage, isHeadshot);
+            }
         }
 
         DespawnSafely();

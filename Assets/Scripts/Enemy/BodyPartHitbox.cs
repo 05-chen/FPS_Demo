@@ -164,6 +164,22 @@ public class BodyPartHitbox : MonoBehaviour
         }
     }
 
+    /// <summary>真人与假人共用的部位扣血。躯干明显高于四肢，避免打中胸口像打空。</summary>
+    public static int HitDamage(DetailedBodyPart part)
+    {
+        switch (part)
+        {
+            case DetailedBodyPart.Torso:
+                return 50;
+            case DetailedBodyPart.Legs:
+                return 25;
+            case DetailedBodyPart.Arms:
+                return 15;
+            default:
+                return 20;
+        }
+    }
+
     /// <summary>碰撞体是否挂在可受伤角色（玩家或假人）上。</summary>
     static bool BelongsToDamageableCharacter(Collider collider) =>
         collider != null
