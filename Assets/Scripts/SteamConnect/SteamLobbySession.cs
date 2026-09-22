@@ -42,13 +42,16 @@ public sealed class SteamLobbySession : MonoBehaviour
     readonly Dictionary<ulong, TeamId> _chosenTeams = new Dictionary<ulong, TeamId>();
 
     readonly HashSet<ulong> _pendingJoinClientIds = new HashSet<ulong>();
-    readonly HashSet<ulong> _postMatchAdmissionClientIds = new HashSet<ulong>();
+    /// <summary>结算等待期间已收到等待提示的 clientId；下一局就绪后定向发选阵营。</summary>
+    readonly HashSet<ulong> _postMatchWaitingClientIds = new HashSet<ulong>();
 
     bool _matchLoadStarted;
     bool _gameplayStarted;
-    bool _postMatchWaiting;
     bool _hostOpenedNewRound;
+    /// <summary>本轮结算后的下一局准备是否已执行（防重复）。</summary>
+    bool _nextRoundPrepared;
     Coroutine _matchLoadRoutine;
+    Coroutine _postMatchPipelineRoutine;
 
     CallResult<LobbyCreated_t> _lobbyCreated;
     CallResult<LobbyEnter_t> _lobbyJoin;
@@ -198,6 +201,7 @@ public sealed class SteamLobbySession : MonoBehaviour
         _returningToLobby = true;
         StopRelayWait();
         StopMatchLoad();
+        StopPostMatchPipeline();
         ResetMatchChoices();
         IsOfflineSession = false;
 
@@ -515,29 +519,44 @@ public sealed class SteamLobbySession : MonoBehaviour
             return;
         }
 
-        if (IsMatchEndAdmissionBlocked(clientId))
+        NetworkManager network = NetworkManager.Singleton;
+        if (network == null || !network.IsServer)
         {
-            GameLog.Warn(LogCategory, "对局已结算，拒绝新的阵营选择。");
+            return;
+        }
+
+        MatchRoundPhase phase = MatchGameManager.CurrentPhase;
+        if (MatchGameManager.IsPostMatchBlocked)
+        {
+            GameLog.Warn(LogCategory, "结算/准备下一局期间拒绝阵营选择 clientId=" + clientId + " phase=" + phase);
+            return;
+        }
+
+        if (_chosenTeams.TryGetValue(clientId, out TeamId existing)
+            && existing == team
+            && HasSpawnedPlayer(clientId))
+        {
             return;
         }
 
         _chosenTeams[clientId] = team;
+        _postMatchWaitingClientIds.Remove(clientId);
         Notify("玩家 " + clientId + " 选择了" + TeamIdUtil.DisplayName(team) + "。");
 
-        if (_postMatchAdmissionClientIds.Remove(clientId))
-        {
-            _postMatchWaiting = true;
-        }
+        // 下一局已在服务器准备完成：只为该 clientId 生成，不等待其他人，不重载场景。
+        bool nextRoundReady = _nextRoundPrepared
+            || MatchRoundPhaseRules.AllowsIndependentFactionSpawn(phase);
 
-        if (_gameplayStarted)
+        if (_gameplayStarted || nextRoundReady)
         {
             if (Managers.SpawnManager.Instance == null || !Managers.SpawnManager.Instance.IsSpawned)
             {
-                GameLog.Error(LogCategory, "对局已开始，但 SpawnManager 未就绪，无法复活。");
+                GameLog.Error(LogCategory, "对局场景未就绪，无法为 clientId=" + clientId + " 生成玩家。");
                 return;
             }
 
             Managers.SpawnManager.Instance.SpawnForClient(team, clientId);
+            MatchGameManager.Instance?.ServerEnterPlayingIfSelecting();
             return;
         }
 
@@ -547,14 +566,20 @@ public sealed class SteamLobbySession : MonoBehaviour
     void TryStartMatch()
     {
         NetworkManager network = NetworkManager.Singleton;
-        if (_gameplayStarted || _matchLoadStarted || IsMatchEndAdmissionBlocked()
+        if (_gameplayStarted || _matchLoadStarted || MatchGameManager.IsPostMatchBlocked
+            || _nextRoundPrepared
             || network == null || !network.IsServer)
         {
             return;
         }
 
+        // 已在 FactionSelection 且场景就绪时不应走全局加载。
+        if (MatchGameManager.CurrentPhase == MatchRoundPhase.FactionSelection && _gameplayStarted)
+        {
+            return;
+        }
+
         _matchLoadStarted = true;
-        _postMatchWaiting = false;
         if (UI.FactionSelectUI.Instance != null)
         {
             UI.FactionSelectUI.Instance.ShowUI(false);
@@ -663,6 +688,20 @@ public sealed class SteamLobbySession : MonoBehaviour
         _gameplayStarted = true;
         _matchLoadStarted = false;
         _matchLoadRoutine = null;
+        _nextRoundPrepared = false;
+
+        if (network.IsServer && MatchGameManager.Instance != null && MatchGameManager.Instance.IsSpawned)
+        {
+            if (_chosenTeams.Count > 0)
+            {
+                MatchGameManager.Instance.ServerEnterPlayingIfSelecting();
+            }
+            else if (MatchGameManager.CurrentPhase == MatchRoundPhase.None
+                     || MatchGameManager.CurrentPhase == MatchRoundPhase.FactionSelection)
+            {
+                MatchGameManager.Instance.ServerSetRoundPhase(MatchRoundPhase.FactionSelection);
+            }
+        }
 
         // 场景由 NGO 全体同步切换，但未选阵营的客户端仍停留在自己的选阵营界面。
         foreach (ulong clientId in network.ConnectedClientsIds)
@@ -680,12 +719,13 @@ public sealed class SteamLobbySession : MonoBehaviour
     {
         _chosenTeams.Clear();
         _pendingJoinClientIds.Clear();
-        _postMatchAdmissionClientIds.Clear();
+        _postMatchWaitingClientIds.Clear();
         _matchLoadStarted = false;
         _gameplayStarted = false;
-        _postMatchWaiting = false;
         _hostOpenedNewRound = false;
+        _nextRoundPrepared = false;
         StopMatchLoad();
+        StopPostMatchPipeline();
     }
 
     void StopMatchLoad()
@@ -697,6 +737,30 @@ public sealed class SteamLobbySession : MonoBehaviour
 
         StopCoroutine(_matchLoadRoutine);
         _matchLoadRoutine = null;
+    }
+
+    void StopPostMatchPipeline()
+    {
+        if (_postMatchPipelineRoutine == null)
+        {
+            return;
+        }
+
+        StopCoroutine(_postMatchPipelineRoutine);
+        _postMatchPipelineRoutine = null;
+    }
+
+    static bool HasSpawnedPlayer(ulong clientId)
+    {
+        NetworkManager network = NetworkManager.Singleton;
+        if (network == null
+            || !network.ConnectedClients.TryGetValue(clientId, out NetworkClient client)
+            || client.PlayerObject == null)
+        {
+            return false;
+        }
+
+        return client.PlayerObject.IsSpawned;
     }
 
     public static void UseSteamTransport()
@@ -793,12 +857,23 @@ public sealed class SteamLobbySession : MonoBehaviour
                 return;
             }
 
-            if (IsMatchEndAdmissionBlocked())
+            MatchRoundPhase phase = MatchGameManager.CurrentPhase;
+
+            // 结算中 / 等待计时 / 准备下一局：只准入等待，不进旧局、不选阵营、不生成。
+            if (MatchGameManager.IsPostMatchBlocked || MatchGameManager.IsPostMatchWaitingPhase)
             {
-                Notify("对局已结束，已连接服务器；等待 5 秒后进入下一局准备。");
+                Notify("对局已结束，已连接服务器；请等待当前结算结束。");
                 _pendingJoinClientIds.Remove(clientId);
+                _postMatchWaitingClientIds.Add(clientId);
                 Managers.SpawnManager.Instance?.RequestPostMatchWaitingForClient(clientId);
-                StartCoroutine(AdmitAfterMatchEndDelay(clientId));
+                return;
+            }
+
+            if (phase == MatchRoundPhase.FactionSelection)
+            {
+                Notify("下一局选阵营中，通知新客户端选阵营。");
+                _pendingJoinClientIds.Remove(clientId);
+                Managers.SpawnManager.Instance?.RequestPostMatchFactionSelectForClient(clientId);
                 return;
             }
 
@@ -809,7 +884,7 @@ public sealed class SteamLobbySession : MonoBehaviour
                 return;
             }
 
-            if (_gameplayStarted)
+            if (_gameplayStarted || phase == MatchRoundPhase.Playing)
             {
                 // 对局还在。重连只复活，进度由主机上的对局状态决定，这里不能清。
                 if (Managers.SpawnManager.Instance != null && Managers.SpawnManager.Instance.IsSpawned)
@@ -871,7 +946,8 @@ public sealed class SteamLobbySession : MonoBehaviour
         if (network != null && network.IsHost)
         {
             _pendingJoinClientIds.Remove(clientId);
-            _postMatchAdmissionClientIds.Remove(clientId);
+            _postMatchWaitingClientIds.Remove(clientId);
+            _chosenTeams.Remove(clientId);
             if (clientId != network.LocalClientId)
             {
                 Notify("对手已断开：" + SteamNetworkTransport.ConsumeDisconnectNotice());
@@ -888,6 +964,11 @@ public sealed class SteamLobbySession : MonoBehaviour
     {
         if (_matchLoadStarted || Managers.SpawnManager.Instance == null
             || !Managers.SpawnManager.Instance.IsSpawned)
+        {
+            return;
+        }
+
+        if (MatchGameManager.IsPostMatchBlocked)
         {
             return;
         }
@@ -918,13 +999,28 @@ public sealed class SteamLobbySession : MonoBehaviour
 
     bool ProcessClientJoin(ulong clientId)
     {
-        if (MatchGameManager.IsMatchOver && !_postMatchWaiting)
+        MatchRoundPhase phase = MatchGameManager.CurrentPhase;
+
+        if (MatchGameManager.IsPostMatchBlocked || MatchGameManager.IsPostMatchWaitingPhase)
         {
-            MatchGameManager.Instance?.SendMatchEndStateToClient(clientId);
+            _postMatchWaitingClientIds.Add(clientId);
+            Managers.SpawnManager.Instance?.RequestPostMatchWaitingForClient(clientId);
             return true;
         }
 
-        if (_gameplayStarted)
+        if (phase == MatchRoundPhase.FactionSelection)
+        {
+            Managers.SpawnManager.Instance?.RequestPostMatchFactionSelectForClient(clientId);
+            return true;
+        }
+
+        if (phase == MatchRoundPhase.PreparingNextRound)
+        {
+            _pendingJoinClientIds.Add(clientId);
+            return false;
+        }
+
+        if (_gameplayStarted || phase == MatchRoundPhase.Playing)
         {
             Notify("对手重新加入，请重新选择阵营。");
         }
@@ -934,28 +1030,199 @@ public sealed class SteamLobbySession : MonoBehaviour
     }
 
     /// <summary>
-    /// 结算期间保持会话连接，但禁止新客户端进入当前回合、选择阵营或生成玩家。
-    /// 点击结算界面后进入下一局等待状态，才重新开放阵营选择。
+    /// 对局 Concude 后由 MatchGameManager 调用：启动唯一服务端结算等待管线。
+    /// 可重复调用，但管线只跑一次。
     /// </summary>
-    bool IsMatchEndAdmissionBlocked(ulong clientId = ulong.MaxValue) =>
-        !_postMatchWaiting
-        && !_postMatchAdmissionClientIds.Contains(clientId)
-        && MatchGameManager.IsMatchOver;
-
-    /// <summary>结算期间允许连接但延迟进入下一局准备，避免直接落入已结束的对局。</summary>
-    IEnumerator AdmitAfterMatchEndDelay(ulong clientId)
+    public void ServerOnMatchEnded()
     {
-        yield return new WaitForSecondsRealtime(5f);
-
         NetworkManager network = NetworkManager.Singleton;
-        if (network == null || !network.IsHost || !network.ConnectedClients.ContainsKey(clientId)
-            || !MatchGameManager.IsMatchOver)
+        if (network == null || !network.IsServer)
         {
+            return;
+        }
+
+        _nextRoundPrepared = false;
+        if (_postMatchPipelineRoutine != null)
+        {
+            return;
+        }
+
+        _postMatchPipelineRoutine = StartCoroutine(ServerPostMatchPipeline());
+    }
+
+    /// <summary>服务端权威：MatchEnded → PostMatchWaiting(5s) → PreparingNextRound → FactionSelection。</summary>
+    IEnumerator ServerPostMatchPipeline()
+    {
+        NetworkManager network = NetworkManager.Singleton;
+        if (network == null || !network.IsServer)
+        {
+            _postMatchPipelineRoutine = null;
             yield break;
         }
 
-        _postMatchAdmissionClientIds.Add(clientId);
-        Managers.SpawnManager.Instance?.RequestPostMatchFactionSelectForClient(clientId);
+        MatchGameManager match = MatchGameManager.Instance;
+        if (match != null && match.IsSpawned)
+        {
+            match.ServerSetRoundPhase(MatchRoundPhase.PostMatchWaiting);
+        }
+
+        Notify("结算等待计时开始（约 5 秒）。");
+        yield return new WaitForSecondsRealtime(5f);
+
+        network = NetworkManager.Singleton;
+        if (network == null || !network.IsServer)
+        {
+            _postMatchPipelineRoutine = null;
+            yield break;
+        }
+
+        ServerPrepareNextRoundKeepingSession();
+        ServerNotifyFactionSelectAfterPrepare();
+        TryProcessPendingJoins();
+        _postMatchPipelineRoutine = null;
+    }
+
+    void ServerNotifyFactionSelectAfterPrepare()
+    {
+        NetworkManager network = NetworkManager.Singleton;
+        if (network == null || !network.IsServer
+            || Managers.SpawnManager.Instance == null
+            || !Managers.SpawnManager.Instance.IsSpawned)
+        {
+            return;
+        }
+
+        // 等待中的新加入者 + 仍连接且尚未选阵营的客户端。
+        HashSet<ulong> targets = new HashSet<ulong>(_postMatchWaitingClientIds);
+        foreach (ulong clientId in network.ConnectedClientsIds)
+        {
+            if (!_chosenTeams.ContainsKey(clientId) || !HasSpawnedPlayer(clientId))
+            {
+                targets.Add(clientId);
+            }
+        }
+
+        foreach (ulong clientId in targets)
+        {
+            if (!network.ConnectedClients.ContainsKey(clientId))
+            {
+                continue;
+            }
+
+            Managers.SpawnManager.Instance.RequestPostMatchFactionSelectForClient(clientId);
+        }
+
+        _postMatchWaitingClientIds.Clear();
+    }
+
+    /// <summary>
+    /// 清理上一局并初始化下一局（只执行一次）。不因新客户端加入而重复创建 MatchGameManager。
+    /// </summary>
+    public void ServerPrepareNextRoundKeepingSession()
+    {
+        NetworkManager network = NetworkManager.Singleton;
+        if (network == null || !network.IsServer || !network.IsListening)
+        {
+            return;
+        }
+
+        if (_nextRoundPrepared && MatchGameManager.CurrentPhase == MatchRoundPhase.FactionSelection)
+        {
+            GameLog.Info(LogCategory, "下一局已准备过，跳过重复 Prepare。");
+            return;
+        }
+
+        MatchGameManager match = MatchGameManager.Instance;
+        if (match != null && match.IsSpawned)
+        {
+            match.ServerSetRoundPhase(MatchRoundPhase.PreparingNextRound);
+        }
+
+        StopMatchLoad();
+        _matchLoadStarted = false;
+        _hostOpenedNewRound = false;
+        _chosenTeams.Clear();
+
+        ServerDespawnAllPlayerObjects();
+
+        if (UI.FactionSelectUI.Instance != null)
+        {
+            UI.FactionSelectUI.Instance.ShowUI(false);
+        }
+
+        // 原地重置占点与 MatchGameManager，不重新加载场景、不 Instantiate 新的 MatchGameManager。
+        SectorManager.ServerResetAllForNewMatch();
+        if (match != null && match.IsSpawned)
+        {
+            match.ServerBeginNewRound();
+            match.NotifyMatchResetClientRpc();
+        }
+        else
+        {
+            GameLog.Warn(LogCategory, "PrepareNextRound 时 MatchGameManager 未就绪。");
+        }
+
+        // 场景已在对局中：选阵营后直接 Spawn，禁止再走 TryStartMatch 全局加载。
+        _gameplayStarted = true;
+        _nextRoundPrepared = true;
+        Notify("下一局已准备完成，开放阵营选择。");
+    }
+
+    /// <summary>兼容旧调用名：转交服务端准备下一局。</summary>
+    public void PrepareNextRoundKeepingSession()
+    {
+        if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsServer)
+        {
+            ServerPrepareNextRoundKeepingSession();
+        }
+    }
+
+    static void ServerDespawnAllPlayerObjects()
+    {
+        NetworkManager network = NetworkManager.Singleton;
+        if (network == null || !network.IsServer)
+        {
+            return;
+        }
+
+        List<NetworkObject> toDespawn = new List<NetworkObject>();
+        foreach (ulong clientId in network.ConnectedClientsIds)
+        {
+            if (!network.ConnectedClients.TryGetValue(clientId, out NetworkClient client)
+                || client.PlayerObject == null)
+            {
+                continue;
+            }
+
+            toDespawn.Add(client.PlayerObject);
+        }
+
+        PlayerController[] players = Object.FindObjectsByType<PlayerController>(
+            FindObjectsInactive.Include,
+            FindObjectsSortMode.None);
+        for (int i = 0; i < players.Length; i++)
+        {
+            PlayerController player = players[i];
+            if (player == null)
+            {
+                continue;
+            }
+
+            NetworkObject netObj = player.NetworkObject;
+            if (netObj != null && netObj.IsSpawned && !toDespawn.Contains(netObj))
+            {
+                toDespawn.Add(netObj);
+            }
+        }
+
+        for (int i = 0; i < toDespawn.Count; i++)
+        {
+            NetworkObject netObj = toDespawn[i];
+            if (netObj != null && netObj.IsSpawned)
+            {
+                netObj.Despawn(true);
+            }
+        }
     }
 
     void OnLobbyList(LobbyMatchList_t result, bool ioFailure)
@@ -1001,25 +1268,6 @@ public sealed class SteamLobbySession : MonoBehaviour
         }
     }
 
-    /// <summary>一局结束后保持连接：清除本局选择，等主机开下一局。</summary>
-    public void PrepareNextRoundKeepingSession()
-    {
-        if (NetworkManager.Singleton == null || !NetworkManager.Singleton.IsListening)
-        {
-            return;
-        }
-
-        StopMatchLoad();
-        _chosenTeams.Clear();
-        _postMatchAdmissionClientIds.Clear();
-        _matchLoadStarted = false;
-        _gameplayStarted = false;
-        _postMatchWaiting = true;
-
-        // 开下一局属于「主机新开一局」，必须让 LoadMatchAndSpawn 重载场景并重置占领进度与倒计时。
-        _hostOpenedNewRound = NetworkManager.Singleton.IsServer;
-    }
-
     void Notify(string message)
     {
         GameLog.Info(LogCategory, message);
@@ -1056,6 +1304,8 @@ public sealed class SteamLobbySession : MonoBehaviour
     void OnDestroy()
     {
         StopRelayWait();
+        StopMatchLoad();
+        StopPostMatchPipeline();
         LeaveCurrentLobby();
         DisposeSteamCallbacks();
         UnbindNetworkCallbacks();

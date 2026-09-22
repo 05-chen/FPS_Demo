@@ -100,13 +100,18 @@ namespace UI
         /// <summary>关掉播报并进入等待下一局。结算不会结束对话，绝对不在这里断网 </summary>
         void Dismiss()
         {
+            ForceHide();
+            World.MatchGameManager.NotifyMatchEndDismissed();
+        }
+
+        /// <summary>强制关闭结算界面（不触发下一局逻辑）。下一局准备完成后可重复调用。</summary>
+        public void ForceHide()
+        {
             _awaitingDismiss = false;
             if (_canvasRoot != null)
             {
                 _canvasRoot.SetActive(false);
             }
-
-            World.MatchGameManager.NotifyMatchEndDismissed();
         }
 
         /// <summary>winner=None 为平局；按本地玩家阵营显示胜/负。</summary>

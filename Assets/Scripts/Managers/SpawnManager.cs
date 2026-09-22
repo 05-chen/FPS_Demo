@@ -65,6 +65,13 @@ namespace Managers
                 return;
             }
 
+            if (World.MatchGameManager.IsPostMatchBlocked)
+            {
+                GameLog.Warn("Spawn", "结算等待中拒绝阵营提交 clientId="
+                    + rpcParams.Receive.SenderClientId);
+                return;
+            }
+
             if (SteamLobbySession.Instance != null)
             {
                 SteamLobbySession.Instance.OnClientChoseFaction(rpcParams.Receive.SenderClientId, team);
@@ -82,9 +89,10 @@ namespace Managers
                 return false;
             }
 
-            if (World.MatchGameManager.IsMatchOver)
+            if (World.MatchGameManager.IsPostMatchBlocked || World.MatchGameManager.IsMatchOver)
             {
-                GameLog.Warn("Spawn", "对局已结算，拒绝为 clientId=" + clientId + " 生成玩家。");
+                GameLog.Warn("Spawn", "结算/准备下一局期间拒绝为 clientId=" + clientId + " 生成玩家。phase="
+                    + World.MatchGameManager.CurrentPhase);
                 return false;
             }
 

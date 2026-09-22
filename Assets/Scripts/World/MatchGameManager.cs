@@ -17,6 +17,19 @@ namespace World
         public static bool IsMatchOver =>
             Instance != null && Instance.IsSpawned && Instance.MatchEnded.Value;
 
+        public static MatchRoundPhase CurrentPhase =>
+            Instance != null && Instance.IsSpawned
+                ? Instance.RoundPhase.Value
+                : MatchRoundPhase.None;
+
+        /// <summary>结算中 / 等待下一局 / 准备下一局：禁止生成玩家、禁止 TryStartMatch 开旧局。</summary>
+        public static bool IsPostMatchBlocked =>
+            MatchRoundPhaseRules.IsPostMatchBlocked(CurrentPhase);
+
+        /// <summary>允许连接但只能等待：结算中或结算等待计时中。</summary>
+        public static bool IsPostMatchWaitingPhase =>
+            MatchRoundPhaseRules.IsPostMatchWaitingPhase(CurrentPhase);
+
         /// <summary>
         /// 这一局还在打：倒计时没结束，且红或蓝仍占着至少一个点。
         /// 客户端断线重连时用它判断，不能把进度清掉。
@@ -24,6 +37,7 @@ namespace World
         public bool IsRoundStillActive =>
             IsSpawned
             && !MatchEnded.Value
+            && RoundPhase.Value == MatchRoundPhase.Playing
             && MatchTimer.Value > 0f
             && SectorManager.AnySideHoldsPoint();
 
@@ -50,6 +64,11 @@ namespace World
             NetworkVariableReadPermission.Everyone,
             NetworkVariableWritePermission.Server);
 
+        public readonly NetworkVariable<MatchRoundPhase> RoundPhase = new NetworkVariable<MatchRoundPhase>(
+            MatchRoundPhase.None,
+            NetworkVariableReadPermission.Everyone,
+            NetworkVariableWritePermission.Server);
+
         Coroutine _matchEndBootstrap;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
@@ -62,6 +81,7 @@ namespace World
             if (!IsServer)
             {
                 MatchEnded.OnValueChanged += OnMatchEndedChanged;
+                RoundPhase.OnValueChanged += OnRoundPhaseChanged;
                 _matchEndBootstrap = StartCoroutine(BootstrapMatchEnd());
                 return;
             }
@@ -91,9 +111,44 @@ namespace World
             }
         }
 
+        void OnRoundPhaseChanged(MatchRoundPhase previous, MatchRoundPhase current)
+        {
+            if (current == MatchRoundPhase.FactionSelection
+                || current == MatchRoundPhase.Playing
+                || current == MatchRoundPhase.PreparingNextRound)
+            {
+                MatchEndUI.EnsureInstance().ForceHide();
+            }
+
+            if (current == MatchRoundPhase.PostMatchWaiting
+                || current == MatchRoundPhase.PreparingNextRound)
+            {
+                // 结算等待阶段：未参与本局的客户端由定向 RPC 显示等待，不弹旧局结算。
+                if (SteamLobbyUI.IsAwaitingPostMatchAdmission)
+                {
+                    MatchEndUI.EnsureInstance().ForceHide();
+                }
+            }
+        }
+
         void TryShowSynchronizedMatchEnd()
         {
             if (!MatchEnded.Value || MatchEndUI.IsAwaitingDismiss)
+            {
+                return;
+            }
+
+            // 结算后新加入的客户端只看等待提示，不能落入已结束对局的结算 UI。
+            if (SteamLobbyUI.IsAwaitingPostMatchAdmission || !HasLocalPlayerObject())
+            {
+                return;
+            }
+
+            MatchRoundPhase phase = RoundPhase.Value;
+            if (phase == MatchRoundPhase.PostMatchWaiting
+                || phase == MatchRoundPhase.PreparingNextRound
+                || phase == MatchRoundPhase.FactionSelection
+                || phase == MatchRoundPhase.Playing)
             {
                 return;
             }
@@ -102,6 +157,14 @@ namespace World
             MatchEndUI.EnsureInstance().Show(WinningTeam.Value, MatchEndedBySweep.Value);
             GameLog.Info("Match", "根据同步状态恢复结算界面 winner=" +
                 WinningTeam.Value + " sweep=" + MatchEndedBySweep.Value);
+        }
+
+        static bool HasLocalPlayerObject()
+        {
+            NetworkManager network = NetworkManager.Singleton;
+            return network != null
+                && network.LocalClient != null
+                && network.LocalClient.PlayerObject != null;
         }
 
         /// <summary>
@@ -135,11 +198,29 @@ namespace World
             GameLog.Info("Match", "主机新开一局，占领进度与倒计时已重置。");
         }
 
+        /// <summary>服务器设置回合阶段（幂等：同阶段重复写入可接受）。</summary>
+        public void ServerSetRoundPhase(MatchRoundPhase phase)
+        {
+            if (!IsServer || !IsSpawned)
+            {
+                return;
+            }
+
+            if (RoundPhase.Value == phase)
+            {
+                return;
+            }
+
+            RoundPhase.Value = phase;
+            GameLog.Info("Match", "RoundPhase -> " + phase);
+        }
+
         /// <summary>通知所有客户端清掉顶栏缓存，避免还画着上一局的 SectorManager。</summary>
         [ClientRpc]
         public void NotifyMatchResetClientRpc()
         {
             UI.SectorHUDUI.InvalidateManagerCache();
+            MatchEndUI.EnsureInstance().ForceHide();
             GameLog.Info("Match", "客户端已收到开局重置通知。");
         }
 
@@ -155,7 +236,23 @@ namespace World
             MatchTimer.Value = Mathf.Max(1f, matchDurationSeconds);
             WinningTeam.Value = TeamId.None;
             MatchEndedBySweep.Value = false;
-            GameLog.Info("Match", "对局计时开始 " + MatchTimer.Value.ToString("F0") + " 秒");
+            RoundPhase.Value = MatchRoundPhase.FactionSelection;
+            GameLog.Info("Match", "对局计时开始 " + MatchTimer.Value.ToString("F0") + " 秒（待选阵营）");
+        }
+
+        /// <summary>至少一名玩家已生成后进入 Playing。</summary>
+        public void ServerEnterPlayingIfSelecting()
+        {
+            if (!IsServer || !IsSpawned)
+            {
+                return;
+            }
+
+            if (RoundPhase.Value == MatchRoundPhase.FactionSelection
+                || RoundPhase.Value == MatchRoundPhase.None)
+            {
+                RoundPhase.Value = MatchRoundPhase.Playing;
+            }
         }
 
         public override void OnNetworkDespawn()
@@ -166,6 +263,7 @@ namespace World
             }
 
             MatchEnded.OnValueChanged -= OnMatchEndedChanged;
+            RoundPhase.OnValueChanged -= OnRoundPhaseChanged;
             if (_matchEndBootstrap != null)
             {
                 StopCoroutine(_matchEndBootstrap);
@@ -183,6 +281,7 @@ namespace World
             }
 
             MatchEnded.OnValueChanged -= OnMatchEndedChanged;
+            RoundPhase.OnValueChanged -= OnRoundPhaseChanged;
             if (_matchEndBootstrap != null)
             {
                 StopCoroutine(_matchEndBootstrap);
@@ -195,6 +294,12 @@ namespace World
         void Update()
         {
             if (!IsServer || !IsSpawned || MatchEnded.Value)
+            {
+                return;
+            }
+
+            // 选阵营阶段已重置计时器，但未开打前不扣时间，避免等人时耗尽。
+            if (RoundPhase.Value != MatchRoundPhase.Playing)
             {
                 return;
             }
@@ -264,15 +369,27 @@ namespace World
             MatchTimer.Value = 0f;
             WinningTeam.Value = winner;
             MatchEndedBySweep.Value = isSweep;
+            RoundPhase.Value = MatchRoundPhase.MatchEnded;
             string reason = isSweep ? "推平" : "限时";
             string winnerName = TeamIdUtil.IsPlayable(winner) ? TeamIdUtil.DisplayName(winner) : "平局";
             GameLog.Info("Match", "对局结束 [" + reason + "] 胜者=" + winnerName);
             AnnounceMatchEndClientRpc((int)winner, isSweep);
+
+            if (SteamLobbySession.Instance != null)
+            {
+                SteamLobbySession.Instance.ServerOnMatchEnded();
+            }
         }
 
         public void SendMatchEndStateToClient(ulong clientId)
         {
             if (!IsServer || !IsSpawned || !MatchEnded.Value)
+            {
+                return;
+            }
+
+            // 结算后新加入者走等待提示，不发旧局结算播报。
+            if (IsPostMatchBlocked || IsPostMatchWaitingPhase)
             {
                 return;
             }
@@ -287,6 +404,11 @@ namespace World
         [ClientRpc]
         void AnnounceMatchEndClientRpc(int winnerTeamValue, bool isSweep, ClientRpcParams rpcParams = default)
         {
+            if (SteamLobbyUI.IsAwaitingPostMatchAdmission || !HasLocalPlayerObject())
+            {
+                return;
+            }
+
             TeamId winner = TeamIdUtil.FromNetwork(winnerTeamValue);
             GameplayGate.Block();
             MatchEndUI.EnsureInstance().Show(winner, isSweep);

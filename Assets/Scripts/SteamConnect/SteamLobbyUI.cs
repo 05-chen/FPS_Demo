@@ -26,6 +26,11 @@ public sealed class SteamLobbyUI : MonoBehaviour
     GameObject _lobbyCanvasRoot;
     Camera _overviewCamera;
     bool _sessionBound;
+    /// <summary>本机因「对局结束后加入」而处于等待准入，禁止弹出旧局结算 UI。</summary>
+    static bool _awaitingPostMatchAdmission;
+
+    /// <summary>结算后新加入客户端：只显示等待，不显示旧局结算/阵营选择。</summary>
+    public static bool IsAwaitingPostMatchAdmission => _awaitingPostMatchAdmission;
 
     static readonly Vector3 OverviewPosition = new Vector3(26f, 7f, 8f);
     static readonly Vector3 OverviewLookAt = new Vector3(26f, 3f, 15.2f);
@@ -219,7 +224,9 @@ public sealed class SteamLobbyUI : MonoBehaviour
             return;
         }
 
-        Instance.OnStatusChanged("对局已结束，准备时间已结束，请选择阵营。");
+        _awaitingPostMatchAdmission = false;
+        UI.MatchEndUI.EnsureInstance().ForceHide();
+        Instance.OnStatusChanged("下一局已准备完成，请选择阵营。");
         UI.FactionSelectUI factionUi = UI.FactionSelectUI.Instance;
         if (factionUi == null)
         {
@@ -238,8 +245,32 @@ public sealed class SteamLobbyUI : MonoBehaviour
             return;
         }
 
+        _awaitingPostMatchAdmission = true;
+        UI.MatchEndUI.EnsureInstance().ForceHide();
+        if (UI.FactionSelectUI.Instance != null)
+        {
+            UI.FactionSelectUI.Instance.ShowUI(false);
+        }
+
         Instance.ShowLobby();
-        Instance.OnStatusChanged("已连接服务器，但本局已结束。请等待 5 秒后进入下一局准备。");
+        Instance.OnStatusChanged("已连接服务器，本局已结束。请等待当前结算结束。");
+    }
+
+    /// <summary>本机参与者在结算点击后、下一局尚未就绪时的等待提示。</summary>
+    public static void ShowPostMatchWaitingForParticipant()
+    {
+        if (Instance == null)
+        {
+            return;
+        }
+
+        UI.MatchEndUI.EnsureInstance().ForceHide();
+        if (UI.FactionSelectUI.Instance != null)
+        {
+            UI.FactionSelectUI.Instance.ShowUI(false);
+        }
+
+        Instance.OnStatusChanged("本局已结束。请等待当前结算结束。");
     }
 
     void BuildUi()
@@ -298,6 +329,7 @@ public sealed class SteamLobbyUI : MonoBehaviour
     /// <summary>玩家退出房间：真正断开连接并回到开房大厅。只有这条路会断网。</summary>
     public void QuitToLobby()
     {
+        _awaitingPostMatchAdmission = false;
         if (SteamLobbySession.Instance != null)
         {
             SteamLobbySession.Instance.LeaveSession();
@@ -308,37 +340,22 @@ public sealed class SteamLobbyUI : MonoBehaviour
     }
 
     /// <summary>
-    /// 结算后进入等待下一局：连接保持不变，直接在对局场景里弹出选阵营。
-    /// 双方重新选完阵营后，TryStartMatch 会自动重载场景并开新一局。
+    /// 结算播报被点击后：以服务器 RoundPhase 为准。
+    /// 下一局未就绪则只显示等待；已进入 FactionSelection 才弹选阵营。
     /// </summary>
     public void EnterPostMatchWaiting()
     {
-        if (SteamLobbySession.Instance != null)
-        {
-            SteamLobbySession.Instance.PrepareNextRoundKeepingSession();
-        }
+        UI.CombatStatusUI.Instance?.Hide();
 
-        // 不能复用 ShowFactionSelect()：它会打开大厅俯视相机（坐标属于大厅场景）并抢走
-        // 玩家相机的 AudioListener。结算时人还在对局场景，只需要把面板弹出来。
-        // 大厅视觉已由 HideForMatchEnd 收起，这里不再碰相机。
-        UI.FactionSelectUI factionUi = UI.FactionSelectUI.Instance;
-        if (factionUi == null)
+        MatchRoundPhase phase = World.MatchGameManager.CurrentPhase;
+        if (phase == World.MatchRoundPhase.FactionSelection || phase == World.MatchRoundPhase.Playing)
         {
-            factionUi = FindFirstObjectByType<UI.FactionSelectUI>(FindObjectsInactive.Include);
-        }
-
-        if (factionUi == null)
-        {
-            OnStatusChanged("找不到选阵营界面，无法开始下一局。");
+            ShowPostMatchFactionSelect();
             return;
         }
 
-        factionUi.gameObject.SetActive(true);
-        factionUi.ShowUI(true); // ShowUI(true) 内部已做 GameplayGate.Block 与解锁鼠标
-
-        // 结算时若玩家正处于死亡/倒地，伤情面板会留在屏幕上；下一局开始前先清掉。
-        UI.CombatStatusUI.Instance?.Hide();
-        OnStatusChanged("对局结束，请重新选择阵营开始下一局。");
+        // MatchEnded / PostMatchWaiting / PreparingNextRound：禁止本地提前开下一局或弹选阵营。
+        ShowPostMatchWaitingForParticipant();
     }
 
     /// <summary>结算播报显示期间先收起大厅，等玩家点击后再打开。</summary>
