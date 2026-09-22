@@ -227,7 +227,7 @@ namespace World
             out float blueFill,
             out bool showGray)
         {
-            ToHudBarFills(owner, progress, UsesCapturedHud(owner, false), false, 0, 0, out redFill, out blueFill, out showGray);
+            ToHudBarFills(owner, progress, UsesCapturedHud(owner, false), false, false, 0, 0, out redFill, out blueFill, out showGray);
         }
 
         /// <summary>未传入圈内人数时，按无人圈处理。</summary>
@@ -240,7 +240,7 @@ namespace World
             out float blueFill,
             out bool showGray)
         {
-            ToHudBarFills(owner, progress, hasBeenCaptured, isLocked, 0, 0, out redFill, out blueFill, out showGray);
+            ToHudBarFills(owner, progress, hasBeenCaptured, isLocked, false, 0, 0, out redFill, out blueFill, out showGray);
         }
 
         /// <summary>
@@ -254,6 +254,24 @@ namespace World
             float progress,
             bool hasBeenCaptured,
             bool isLocked,
+            int redCount,
+            int blueCount,
+            out float redFill,
+            out float blueFill,
+            out bool showGray)
+        {
+            ToHudBarFills(owner, progress, hasBeenCaptured, isLocked, false, redCount, blueCount, out redFill, out blueFill, out showGray);
+        }
+
+        /// <summary>
+        /// 顶栏填充：支持保留已经发生过的双方争夺，避免一方离圈时颜色回退为灰底。
+        /// </summary>
+        public static void ToHudBarFills(
+            TeamId owner,
+            float progress,
+            bool hasBeenCaptured,
+            bool isLocked,
+            bool hasBeenContested,
             int redCount,
             int blueCount,
             out float redFill,
@@ -282,7 +300,7 @@ namespace World
             // 双方对峙：条跟着真实 CaptureProgress，不要用人头比例临时顶替。
             // 1v1 人数相等时进度本来就会冻住；若改画 50/50，死后切回真实进度会像「被清成灰再从头涨」。
             // 人头只影响速率（CalculateCaptureRate），不影响这一格怎么填色。
-            if (IsContested(redCount, blueCount))
+            if (hasBeenContested || (redCount > 0 && blueCount > 0))
             {
                 showGray = false;
                 redFill = ToHudFillAmount(progress);

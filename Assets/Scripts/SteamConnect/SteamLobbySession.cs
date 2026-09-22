@@ -520,7 +520,7 @@ public sealed class SteamLobbySession : MonoBehaviour
             return;
         }
 
-        if (MatchGameManager.IsMatchOver && !_postMatchWaiting)
+        if (IsMatchEndAdmissionBlocked())
         {
             GameLog.Warn(LogCategory, "对局已结算，拒绝新的阵营选择。");
             return;
@@ -548,7 +548,8 @@ public sealed class SteamLobbySession : MonoBehaviour
     void TryStartMatch()
     {
         NetworkManager network = NetworkManager.Singleton;
-        if (_gameplayStarted || _matchLoadStarted || network == null || !network.IsServer)
+        if (_gameplayStarted || _matchLoadStarted || IsMatchEndAdmissionBlocked()
+            || network == null || !network.IsServer)
         {
             return;
         }
@@ -651,17 +652,8 @@ public sealed class SteamLobbySession : MonoBehaviour
             yield break;
         }
 
-        // 快照遍历：循环内可能 ForgetClientChoice 删字典项，不能直接 foreach _chosenTeams。
-        List<KeyValuePair<ulong, TeamId>> choices = new List<KeyValuePair<ulong, TeamId>>(_chosenTeams);
-        for (int i = 0; i < choices.Count; i++)
+        foreach (KeyValuePair<ulong, TeamId> pair in _chosenTeams)
         {
-            KeyValuePair<ulong, TeamId> pair = choices[i];
-            if (!network.ConnectedClients.ContainsKey(pair.Key))
-            {
-                ForgetClientChoice(pair.Key);
-                continue;
-            }
-
             Managers.SpawnManager.Instance.SpawnForClient(pair.Value, pair.Key);
         }
 
@@ -796,18 +788,18 @@ public sealed class SteamLobbySession : MonoBehaviour
                 return;
             }
 
+            if (IsMatchEndAdmissionBlocked())
+            {
+                Notify("对局已进入结算，拒绝新玩家进入并仅同步结算状态。");
+                _pendingJoinClientIds.Remove(clientId);
+                MatchGameManager.Instance?.SendMatchEndStateToClient(clientId);
+                return;
+            }
+
             if (_matchLoadStarted)
             {
                 _pendingJoinClientIds.Add(clientId);
                 Notify("对手在场景加载期间加入，等待场景就绪后处理。");
-                return;
-            }
-
-            if (MatchGameManager.IsMatchOver && !_postMatchWaiting)
-            {
-                Notify("对手在结算阶段加入，仅同步结算状态，不生成玩家。");
-                _pendingJoinClientIds.Remove(clientId);
-                MatchGameManager.Instance?.SendMatchEndStateToClient(clientId);
                 return;
             }
 
@@ -887,20 +879,6 @@ public sealed class SteamLobbySession : MonoBehaviour
         }
     }
 
-    /// <summary>
-    /// 断线后清掉已作废的 clientId 本局记录（幂等）。
-    /// 故意不碰 _steamTeamChoices：短暂掉线重连仍靠 SteamID 认回阵营（M1）。
-    /// </summary>
-    void ForgetClientChoice(ulong clientId)
-    {
-        bool removedTeam = _chosenTeams.Remove(clientId);
-        bool removedPending = _pendingJoinClientIds.Remove(clientId);
-        if (removedTeam || removedPending)
-        {
-            GameLog.Info(LogCategory, "已清除 clientId=" + clientId + " 的本局阵营/排队记录（保留 SteamID 阵营）。");
-        }
-    }
-
     /// <summary>当前 NetworkManager 上的 Steam 传输层。单机练习时是 UnityTransport，会返回 null。</summary>
     static SteamNetworkTransport ActiveTransport =>
         NetworkManager.Singleton != null
@@ -917,7 +895,7 @@ public sealed class SteamLobbySession : MonoBehaviour
         NetworkManager network = NetworkManager.Singleton;
         if (network != null && network.IsHost)
         {
-            ForgetClientChoice(clientId);
+            _pendingJoinClientIds.Remove(clientId);
             if (clientId != network.LocalClientId)
             {
                 Notify("对手已断开：" + SteamNetworkTransport.ConsumeDisconnectNotice());
@@ -951,7 +929,7 @@ public sealed class SteamLobbySession : MonoBehaviour
             ulong clientId = pending[i];
             if (!network.ConnectedClients.ContainsKey(clientId))
             {
-                ForgetClientChoice(clientId);
+                _pendingJoinClientIds.Remove(clientId);
                 continue;
             }
 
@@ -984,6 +962,13 @@ public sealed class SteamLobbySession : MonoBehaviour
         Managers.SpawnManager.Instance.RequestFactionSelectForClient(clientId);
         return true;
     }
+
+    /// <summary>
+    /// 结算期间保持会话连接，但禁止新客户端进入当前回合、选择阵营或生成玩家。
+    /// 点击结算界面后进入下一局等待状态，才重新开放阵营选择。
+    /// </summary>
+    bool IsMatchEndAdmissionBlocked() =>
+        !_postMatchWaiting && MatchGameManager.IsMatchOver;
 
     void OnLobbyList(LobbyMatchList_t result, bool ioFailure)
     {

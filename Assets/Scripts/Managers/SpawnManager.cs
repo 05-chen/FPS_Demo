@@ -72,7 +72,7 @@ namespace Managers
         }
 
         /// <summary>
-        /// 主机可直接调用。必须仍在 ConnectedClients 中，否则拒绝生成（H4：防幽灵 clientId）。
+        /// 主机可直接调用。不必先查 ConnectedClients，避免单机点了按钮却静默失败。
         /// </summary>
         public bool SpawnForClient(TeamId team, ulong clientId)
         {
@@ -82,16 +82,22 @@ namespace Managers
                 return false;
             }
 
-            if (!TeamIdUtil.IsPlayable(team))
+            if (World.MatchGameManager.IsMatchOver)
             {
-                GameLog.Warn("Spawn", "无法为未选择的阵营生成玩家。");
+                GameLog.Warn("Spawn", "对局已结算，拒绝为 clientId=" + clientId + " 生成玩家。");
                 return false;
             }
 
-            NetworkManager network = NetworkManager.Singleton;
-            if (network == null || !network.ConnectedClients.TryGetValue(clientId, out var client))
+            if (NetworkManager.Singleton == null
+                || !NetworkManager.Singleton.ConnectedClients.ContainsKey(clientId))
             {
-                GameLog.Warn("Spawn", "clientId=" + clientId + " 已不在线，拒绝 SpawnForClient。");
+                GameLog.Warn("Spawn", "clientId=" + clientId + " 不在当前连接列表，拒绝生成玩家。");
+                return false;
+            }
+
+            if (!TeamIdUtil.IsPlayable(team))
+            {
+                GameLog.Warn("Spawn", "无法为未选择的阵营生成玩家。");
                 return false;
             }
 
@@ -105,7 +111,12 @@ namespace Managers
             Vector3 spawnPosition = GetRandomPointInZone(targetZone);
             Quaternion spawnRotation = targetZone.transform.rotation;
 
-            NetworkObject playerNet = client.PlayerObject;
+            NetworkObject playerNet = null;
+            if (NetworkManager.Singleton.ConnectedClients.TryGetValue(clientId, out var client))
+            {
+                playerNet = client.PlayerObject;
+            }
+
             if (playerNet == null)
             {
                 playerNet = SpawnPlayerForClient(clientId, spawnPosition, spawnRotation);

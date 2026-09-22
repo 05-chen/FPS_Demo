@@ -220,6 +220,14 @@ public class SectorLogicTests
         SectorCaptureRules.ToHudBarFills(TeamId.None, 0.4f, false, false, 1, 0, out float afterKillRed, out float afterKillBlue, out bool afterKillGray);
         Expect("中立点单方推进显示红色进度与灰色余量", afterKillGray && Mathf.Abs(afterKillRed - 0.4f) < 0.0001f && Mathf.Abs(afterKillBlue) < 0.0001f);
 
+        SectorCaptureRules.ToHudBarFills(
+            TeamId.None, 0f, false, false, true, 1, 0,
+            out float afterContestedRed, out float afterContestedBlue, out bool afterContestedGray);
+        Expect(
+            "争夺后单方离圈保留双色分界",
+            !afterContestedGray && Mathf.Abs(afterContestedRed - 0.5f) < 0.0001f &&
+            Mathf.Abs(afterContestedBlue - 0.5f) < 0.0001f);
+
         Expect(
             "灰底仅单方/无人且从未占领",
             SectorCaptureRules.ShowsUncapturedGray(TeamId.None, false, 1, 0) &&

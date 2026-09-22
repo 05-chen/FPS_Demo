@@ -53,6 +53,12 @@ namespace World
             NetworkVariableReadPermission.Everyone,
             NetworkVariableWritePermission.Server);
 
+        /// <summary>双方曾同时进入核心圈后保持双色分界，防止一方离圈时另一方颜色瞬间消失。</summary>
+        public readonly NetworkVariable<bool> HasBeenContested = new NetworkVariable<bool>(
+            false,
+            NetworkVariableReadPermission.Everyone,
+            NetworkVariableWritePermission.Server);
+
         [Header("实时战力(仅 Server 调试可视)")]
         [SerializeField] int activeRedWeight;
         [SerializeField] int activeBlueWeight;
@@ -119,6 +125,10 @@ namespace World
 
             EvaluateFrontlineForces(out activeRedWeight, out activeBlueWeight);
             SyncOccupantCounts(activeRedWeight, activeBlueWeight);
+            if (activeRedWeight > 0 && activeBlueWeight > 0)
+            {
+                HasBeenContested.Value = true;
+            }
             UpdateCaptureLogic(activeRedWeight, activeBlueWeight);
             SnapRearGuardedProgress();
             LogCaptureState(activeRedWeight, activeBlueWeight);
@@ -354,6 +364,7 @@ namespace World
             };
             bool fullyOwned = CaptureProgress.Value >= 1f || CaptureProgress.Value <= -1f;
             HasBeenCaptured.Value = fullyOwned;
+            HasBeenContested.Value = false;
             OccupantRedCount.Value = 0;
             OccupantBlueCount.Value = 0;
             if (strongPointArea != null && strongPointArea.sectorData != null)

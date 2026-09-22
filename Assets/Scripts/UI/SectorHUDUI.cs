@@ -342,6 +342,7 @@ namespace UI
             bool isLocked = SectorCaptureRules.IsHudLocked(owner, capturable, rearGuarded);
             float progress = spawned ? manager.CaptureProgress.Value : 0f;
             bool hasBeenCaptured = spawned && manager.HasBeenCaptured.Value;
+            bool hasBeenContested = spawned && manager.HasBeenContested.Value;
             int redCount = spawned ? manager.OccupantRedCount.Value : 0;
             int blueCount = spawned ? manager.OccupantBlueCount.Value : 0;
             SectorCaptureRules.ToHudBarFills(
@@ -349,6 +350,7 @@ namespace UI
                 progress,
                 hasBeenCaptured,
                 isLocked,
+                hasBeenContested,
                 redCount,
                 blueCount,
                 out float redFill,
