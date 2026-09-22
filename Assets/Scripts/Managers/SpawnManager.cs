@@ -161,6 +161,36 @@ namespace Managers
             ShowFactionSelectClientRpc(targetClient);
         }
 
+        /// <summary>结算等待结束后，通知指定客户端进入下一局选阵营界面。</summary>
+        public void RequestPostMatchFactionSelectForClient(ulong clientId)
+        {
+            if (!IsServer)
+            {
+                return;
+            }
+
+            ClientRpcParams targetClient = new ClientRpcParams
+            {
+                Send = new ClientRpcSendParams { TargetClientIds = new[] { clientId } }
+            };
+            ShowPostMatchFactionSelectClientRpc(targetClient);
+        }
+
+        /// <summary>结算期间仅显示等待提示，不打开当前对局的结算/选阵营流程。</summary>
+        public void RequestPostMatchWaitingForClient(ulong clientId)
+        {
+            if (!IsServer)
+            {
+                return;
+            }
+
+            ClientRpcParams targetClient = new ClientRpcParams
+            {
+                Send = new ClientRpcSendParams { TargetClientIds = new[] { clientId } }
+            };
+            ShowPostMatchWaitingClientRpc(targetClient);
+        }
+
         [ClientRpc]
         void ShowFactionSelectClientRpc(ClientRpcParams rpcParams = default)
         {
@@ -183,6 +213,18 @@ namespace Managers
 
             factionUi.gameObject.SetActive(true);
             factionUi.ShowUI(true);
+        }
+
+        [ClientRpc]
+        void ShowPostMatchFactionSelectClientRpc(ClientRpcParams rpcParams = default)
+        {
+            SteamLobbyUI.ShowPostMatchFactionSelect();
+        }
+
+        [ClientRpc]
+        void ShowPostMatchWaitingClientRpc(ClientRpcParams rpcParams = default)
+        {
+            SteamLobbyUI.ShowPostMatchWaiting();
         }
 
         static NetworkObject SpawnPlayerForClient(ulong clientId, Vector3 spawnPosition, Quaternion spawnRotation)

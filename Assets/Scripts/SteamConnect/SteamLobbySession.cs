@@ -35,19 +35,14 @@ public sealed class SteamLobbySession : MonoBehaviour
 
     public bool IsOfflineSession { get; private set; }
     /// <summary>
-    /// 本局是否已开始。**仅主机侧可靠**：只有主机跑 LoadMatchAndSpawn 会置 true，
-    /// 客户端本机恒为 false，不要在客户端拿它做判断（M1 的老坑）。
+    /// 对局场景是否已加载。**仅主机侧可靠**；玩家生成资格按 clientId 独立处理。
     /// </summary>
     public bool GameplayStarted => _gameplayStarted;
 
     readonly Dictionary<ulong, TeamId> _chosenTeams = new Dictionary<ulong, TeamId>();
 
-    /// <summary>
-    /// SteamID → 阵营。clientId 是 Steam 连接句柄，重连必换新号，
-    /// 所以阵营要按 SteamID 再存一份，才能把重连的玩家认回同一阵营。
-    /// </summary>
-    readonly Dictionary<ulong, TeamId> _steamTeamChoices = new Dictionary<ulong, TeamId>();
     readonly HashSet<ulong> _pendingJoinClientIds = new HashSet<ulong>();
+    readonly HashSet<ulong> _postMatchAdmissionClientIds = new HashSet<ulong>();
 
     bool _matchLoadStarted;
     bool _gameplayStarted;
@@ -520,15 +515,19 @@ public sealed class SteamLobbySession : MonoBehaviour
             return;
         }
 
-        if (IsMatchEndAdmissionBlocked())
+        if (IsMatchEndAdmissionBlocked(clientId))
         {
             GameLog.Warn(LogCategory, "对局已结算，拒绝新的阵营选择。");
             return;
         }
 
         _chosenTeams[clientId] = team;
-        RememberSteamChoice(clientId, team);
         Notify("玩家 " + clientId + " 选择了" + TeamIdUtil.DisplayName(team) + "。");
+
+        if (_postMatchAdmissionClientIds.Remove(clientId))
+        {
+            _postMatchWaiting = true;
+        }
 
         if (_gameplayStarted)
         {
@@ -552,15 +551,6 @@ public sealed class SteamLobbySession : MonoBehaviour
             || network == null || !network.IsServer)
         {
             return;
-        }
-
-        foreach (ulong clientId in network.ConnectedClientsIds)
-        {
-            if (!_chosenTeams.ContainsKey(clientId))
-            {
-                Notify("已记录阵营，等待所有玩家选完。");
-                return;
-            }
         }
 
         _matchLoadStarted = true;
@@ -652,11 +642,6 @@ public sealed class SteamLobbySession : MonoBehaviour
             yield break;
         }
 
-        foreach (KeyValuePair<ulong, TeamId> pair in _chosenTeams)
-        {
-            Managers.SpawnManager.Instance.SpawnForClient(pair.Value, pair.Key);
-        }
-
         Notify("已进入对局场景。");
         if (network.IsServer)
         {
@@ -665,17 +650,37 @@ public sealed class SteamLobbySession : MonoBehaviour
             MatchGameManager.ServerHandleMatchEntry(openedNewRound);
         }
 
+        foreach (KeyValuePair<ulong, TeamId> pair in _chosenTeams)
+        {
+            if (!network.ConnectedClients.ContainsKey(pair.Key))
+            {
+                continue;
+            }
+
+            Managers.SpawnManager.Instance.SpawnForClient(pair.Value, pair.Key);
+        }
+
         _gameplayStarted = true;
         _matchLoadStarted = false;
         _matchLoadRoutine = null;
+
+        // 场景由 NGO 全体同步切换，但未选阵营的客户端仍停留在自己的选阵营界面。
+        foreach (ulong clientId in network.ConnectedClientsIds)
+        {
+            if (!_chosenTeams.ContainsKey(clientId))
+            {
+                Managers.SpawnManager.Instance.RequestFactionSelectForClient(clientId);
+            }
+        }
+
         TryProcessPendingJoins();
     }
 
     void ResetMatchChoices()
     {
         _chosenTeams.Clear();
-        _steamTeamChoices.Clear();
         _pendingJoinClientIds.Clear();
+        _postMatchAdmissionClientIds.Clear();
         _matchLoadStarted = false;
         _gameplayStarted = false;
         _postMatchWaiting = false;
@@ -790,9 +795,10 @@ public sealed class SteamLobbySession : MonoBehaviour
 
             if (IsMatchEndAdmissionBlocked())
             {
-                Notify("对局已进入结算，拒绝新玩家进入并仅同步结算状态。");
+                Notify("对局已结束，已连接服务器；等待 5 秒后进入下一局准备。");
                 _pendingJoinClientIds.Remove(clientId);
-                MatchGameManager.Instance?.SendMatchEndStateToClient(clientId);
+                Managers.SpawnManager.Instance?.RequestPostMatchWaitingForClient(clientId);
+                StartCoroutine(AdmitAfterMatchEndDelay(clientId));
                 return;
             }
 
@@ -848,37 +854,6 @@ public sealed class SteamLobbySession : MonoBehaviour
     /// 找回这位客户端本局的阵营。先查 clientId（同一次连接内有效），
     /// 再查 SteamID（重连后 clientId 换号，但人还是同一个人）。
     /// </summary>
-    bool TryResolveRememberedTeam(ulong clientId, out TeamId team)
-    {
-        if (_chosenTeams.TryGetValue(clientId, out team))
-        {
-            return true;
-        }
-
-        SteamNetworkTransport transport = ActiveTransport;
-        if (transport != null
-            && transport.TryGetRemoteSteamId(clientId, out ulong steamId)
-            && _steamTeamChoices.TryGetValue(steamId, out team))
-        {
-            // 把阵营补回 clientId 视图，后续 TryStartMatch / 复活都走同一份记录。
-            _chosenTeams[clientId] = team;
-            return true;
-        }
-
-        team = TeamId.None;
-        return false;
-    }
-
-    /// <summary>按 SteamID 另存一份阵营，供重连时认人。</summary>
-    void RememberSteamChoice(ulong clientId, TeamId team)
-    {
-        SteamNetworkTransport transport = ActiveTransport;
-        if (transport != null && transport.TryGetRemoteSteamId(clientId, out ulong steamId))
-        {
-            _steamTeamChoices[steamId] = team;
-        }
-    }
-
     /// <summary>当前 NetworkManager 上的 Steam 传输层。单机练习时是 UnityTransport，会返回 null。</summary>
     static SteamNetworkTransport ActiveTransport =>
         NetworkManager.Singleton != null
@@ -896,6 +871,7 @@ public sealed class SteamLobbySession : MonoBehaviour
         if (network != null && network.IsHost)
         {
             _pendingJoinClientIds.Remove(clientId);
+            _postMatchAdmissionClientIds.Remove(clientId);
             if (clientId != network.LocalClientId)
             {
                 Notify("对手已断开：" + SteamNetworkTransport.ConsumeDisconnectNotice());
@@ -950,13 +926,7 @@ public sealed class SteamLobbySession : MonoBehaviour
 
         if (_gameplayStarted)
         {
-            if (TryResolveRememberedTeam(clientId, out TeamId savedTeam))
-            {
-                Notify("对手已重连，按记录阵营自动复活，不重新选阵营。");
-                return Managers.SpawnManager.Instance.SpawnForClient(savedTeam, clientId);
-            }
-
-            Notify("对手已重连，但没有本局阵营记录，通知他选择阵营。");
+            Notify("对手重新加入，请重新选择阵营。");
         }
 
         Managers.SpawnManager.Instance.RequestFactionSelectForClient(clientId);
@@ -967,8 +937,26 @@ public sealed class SteamLobbySession : MonoBehaviour
     /// 结算期间保持会话连接，但禁止新客户端进入当前回合、选择阵营或生成玩家。
     /// 点击结算界面后进入下一局等待状态，才重新开放阵营选择。
     /// </summary>
-    bool IsMatchEndAdmissionBlocked() =>
-        !_postMatchWaiting && MatchGameManager.IsMatchOver;
+    bool IsMatchEndAdmissionBlocked(ulong clientId = ulong.MaxValue) =>
+        !_postMatchWaiting
+        && !_postMatchAdmissionClientIds.Contains(clientId)
+        && MatchGameManager.IsMatchOver;
+
+    /// <summary>结算期间允许连接但延迟进入下一局准备，避免直接落入已结束的对局。</summary>
+    IEnumerator AdmitAfterMatchEndDelay(ulong clientId)
+    {
+        yield return new WaitForSecondsRealtime(5f);
+
+        NetworkManager network = NetworkManager.Singleton;
+        if (network == null || !network.IsHost || !network.ConnectedClients.ContainsKey(clientId)
+            || !MatchGameManager.IsMatchOver)
+        {
+            yield break;
+        }
+
+        _postMatchAdmissionClientIds.Add(clientId);
+        Managers.SpawnManager.Instance?.RequestPostMatchFactionSelectForClient(clientId);
+    }
 
     void OnLobbyList(LobbyMatchList_t result, bool ioFailure)
     {
@@ -1023,8 +1011,7 @@ public sealed class SteamLobbySession : MonoBehaviour
 
         StopMatchLoad();
         _chosenTeams.Clear();
-        // 新一局的阵营要重新选，旧的 SteamID 记录必须一并清掉，否则重连会误用上一局的阵营。
-        _steamTeamChoices.Clear();
+        _postMatchAdmissionClientIds.Clear();
         _matchLoadStarted = false;
         _gameplayStarted = false;
         _postMatchWaiting = true;

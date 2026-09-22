@@ -211,6 +211,37 @@ public sealed class SteamLobbyUI : MonoBehaviour
         lobbyUi.HideLobbyVisuals(hideOverviewCamera: false);
     }
 
+    /// <summary>结算等待结束后，在客户端切换到下一局选阵营界面。</summary>
+    public static void ShowPostMatchFactionSelect()
+    {
+        if (Instance == null)
+        {
+            return;
+        }
+
+        Instance.OnStatusChanged("对局已结束，准备时间已结束，请选择阵营。");
+        UI.FactionSelectUI factionUi = UI.FactionSelectUI.Instance;
+        if (factionUi == null)
+        {
+            factionUi = FindFirstObjectByType<UI.FactionSelectUI>(FindObjectsInactive.Include);
+        }
+
+        factionUi?.ShowUI(true);
+        HideForFactionSelection();
+    }
+
+    /// <summary>显示结算期已连接但尚未获准进入下一局的等待提示。</summary>
+    public static void ShowPostMatchWaiting()
+    {
+        if (Instance == null)
+        {
+            return;
+        }
+
+        Instance.ShowLobby();
+        Instance.OnStatusChanged("已连接服务器，但本局已结束。请等待 5 秒后进入下一局准备。");
+    }
+
     void BuildUi()
     {
         Canvas canvas = RuntimeUiFactory.CreateOverlayCanvas(transform, "SteamLobbyCanvas", RuntimeUiFactory.LobbySortingOrder);
