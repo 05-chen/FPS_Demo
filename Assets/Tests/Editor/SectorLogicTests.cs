@@ -168,6 +168,41 @@ public class SectorLogicTests
     }
 
     [Test]
+    public void CaptureTick_ProgressesGradually_AndClampsOnlyAtFull()
+    {
+        const float duration = 15f;
+        float progress = 0f;
+
+        progress = SectorCaptureRules.ApplyCaptureTick(progress, 1, 0, duration, 1f);
+        Expect("单人占点一秒只推进一小段", Mathf.Abs(progress - (1f / 15f)) < 0.0001f);
+        Expect("未到满格前仍小于 1", progress < 1f);
+
+        float almostFull = SectorCaptureRules.ApplyCaptureTick(0.9f, 1, 0, duration, 1f);
+        Expect("接近满格时不会提前跳满", almostFull < 1f);
+
+        float full = SectorCaptureRules.ApplyCaptureTick(0.95f, 1, 0, duration, 1f);
+        Expect("达到阈值后才允许到满格", Mathf.Abs(full - 1f) < 0.0001f);
+    }
+
+    [Test]
+    public void NeutralHudFill_ChangesGradually_AndShowsGrayUntilFull()
+    {
+        SectorCaptureRules.ToHudBarFills(
+            TeamId.None, 1f / 15f, false, false, 1, 0,
+            out float firstRed, out float firstBlue, out bool firstGray);
+        SectorCaptureRules.ToHudBarFills(
+            TeamId.None, 0.5f, false, false, 1, 0,
+            out float middleRed, out float middleBlue, out bool middleGray);
+        SectorCaptureRules.ToHudBarFills(
+            TeamId.None, 1f, false, false, 1, 0,
+            out float fullRed, out float fullBlue, out bool fullGray);
+
+        Expect("中立点早期只显示实际红色进度", firstGray && firstRed < 0.1f && firstBlue == 0f);
+        Expect("中立点半程仍保留灰色余量", middleGray && Mathf.Abs(middleRed - 0.5f) < 0.0001f && middleBlue == 0f);
+        Expect("只有打满后才显示整格红色", !fullGray && Mathf.Abs(fullRed - 1f) < 0.0001f && fullBlue == 0f);
+    }
+
+    [Test]
     public void OwnedHudFills_FollowsHasBeenCaptured_NotOccupants()
     {
         SectorCaptureRules.ToHudBarFills(TeamId.Red, 1f, true, false, out float redFull, out float blueEmpty, out bool grayAtRed);
@@ -183,7 +218,7 @@ public class SectorLogicTests
         Expect("争执中途进度保留在条上，不用人头比例覆盖", !tugCGray && Mathf.Abs(tugCRed - 0.7f) < 0.0001f && Mathf.Abs(tugCBlue - 0.3f) < 0.0001f);
 
         SectorCaptureRules.ToHudBarFills(TeamId.None, 0.4f, false, false, 1, 0, out float afterKillRed, out float afterKillBlue, out bool afterKillGray);
-        Expect("一方死后仍保留先前进度，不退回灰底从 0 涨", !afterKillGray && Mathf.Abs(afterKillRed - 0.7f) < 0.0001f);
+        Expect("中立点单方推进显示红色进度与灰色余量", afterKillGray && Mathf.Abs(afterKillRed - 0.4f) < 0.0001f && Mathf.Abs(afterKillBlue) < 0.0001f);
 
         Expect(
             "灰底仅单方/无人且从未占领",

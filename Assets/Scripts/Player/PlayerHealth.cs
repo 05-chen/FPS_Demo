@@ -40,6 +40,12 @@ public class PlayerHealth : NetworkBehaviour
         NetworkVariableWritePermission.Server
     );
 
+    readonly NetworkVariable<int> _networkInjury = new NetworkVariable<int>(
+        (int)InjuryState.None,
+        NetworkVariableReadPermission.Everyone,
+        NetworkVariableWritePermission.Server
+    );
+
     public event Action<int, int> OnHealthChanged;
     public event Action OnDeath;
 
@@ -63,6 +69,7 @@ public class PlayerHealth : NetworkBehaviour
     {
         currentHealth.OnValueChanged += HandleHealthChanged;
         _lifeState.OnValueChanged += HandleLifeStateChanged;
+        _networkInjury.OnValueChanged += HandleNetworkInjuryChanged;
 
         if (IsServer)
         {
@@ -73,6 +80,7 @@ public class PlayerHealth : NetworkBehaviour
         }
 
         HandleLifeStateChanged(_lifeState.Value, _lifeState.Value);
+        HandleNetworkInjuryChanged(_networkInjury.Value, _networkInjury.Value);
         ApplyPresentation(IsDead);
     }
 
@@ -80,6 +88,7 @@ public class PlayerHealth : NetworkBehaviour
     {
         currentHealth.OnValueChanged -= HandleHealthChanged;
         _lifeState.OnValueChanged -= HandleLifeStateChanged;
+        _networkInjury.OnValueChanged -= HandleNetworkInjuryChanged;
         StopBleedOut();
         StopRespawn();
     }
@@ -106,6 +115,17 @@ public class PlayerHealth : NetworkBehaviour
         }
 
         ApplyOwnerLifeUi(state);
+    }
+
+    void HandleNetworkInjuryChanged(int previousValue, int newValue)
+    {
+        InjuryState injury = (InjuryState)newValue;
+        if (injury == InjuryState.None || LifeState != PlayerLifeState.Alive)
+        {
+            return;
+        }
+
+        _statusController?.SetInjuryFromLifeState(injury);
     }
 
     static InjuryState ToInjury(PlayerLifeState state)
@@ -219,6 +239,17 @@ public class PlayerHealth : NetworkBehaviour
             }
 
             return;
+        }
+
+        InjuryState injury = hitPart == DetailedBodyPart.Legs
+            ? InjuryState.Crippled_Legs
+            : hitPart == DetailedBodyPart.Arms
+                ? InjuryState.Light_Arms
+                : InjuryState.None;
+        if (injury != InjuryState.None)
+        {
+            _networkInjury.Value = (int)injury;
+            _statusController?.SetInjuryFromLifeState(injury);
         }
 
         TakeDamage(damageAmount);
@@ -344,6 +375,7 @@ public class PlayerHealth : NetworkBehaviour
         StopRespawn();
         currentHealth.Value = maxHealth;
         _lifeState.Value = (int)PlayerLifeState.Alive;
+        _networkInjury.Value = (int)InjuryState.None;
         ApplyPresentation(false);
         _statusController?.ResetStatus();
     }

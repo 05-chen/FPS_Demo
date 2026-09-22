@@ -246,7 +246,7 @@ namespace World
         /// <summary>
         /// 顶栏填充：红条自左向右，蓝条自右向左。
         /// 双方都在圈内：按 CaptureProgress 画红蓝无缝条（人头只影响涨速，不改填色）。
-        /// 灰底仅在从未占领且进度仍为 0、且单方/无人时出现。
+        /// 中立点未完成占领时保留灰色余量，避免半截进度视觉上铺满整格。
         /// 上锁已占领：所属阵营纯色。
         /// </summary>
         public static void ToHudBarFills(
@@ -260,6 +260,8 @@ namespace World
             out float blueFill,
             out bool showGray)
         {
+            progress = Mathf.Clamp(progress, -1f, 1f);
+
             // 上锁且已有归属：纯色 + 锁，不露灰
             if (isLocked && owner == TeamId.Red)
             {
@@ -296,16 +298,17 @@ namespace World
                 return;
             }
 
-            // 从未打满过，但已经有拉锯进度：继续用红蓝无缝条，避免死后突然变灰底再从 0 涨。
+            // 中立点的半截进度必须保留灰色余量；否则红底铺满整格，
+            // 视觉上会像刚进点就已经占满，实际 CaptureProgress 却仍未到 ±1。
             if (Mathf.Abs(progress) > 0.0001f)
             {
-                showGray = false;
-                redFill = ToHudFillAmount(progress);
-                blueFill = 1f - redFill;
+                showGray = true;
+                redFill = ToHudRedFill(progress);
+                blueFill = ToHudBlueFill(progress);
                 return;
             }
 
-            // 从未占领且进度仍在 0：灰底 + 两侧向中间填
+            // 从未占领且没有推进：灰底 + 两侧从中间开始填
             showGray = true;
             redFill = ToHudRedFill(progress);
             blueFill = ToHudBlueFill(progress);

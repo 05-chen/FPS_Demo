@@ -369,33 +369,23 @@ namespace UI
         }
 
         /// <summary>
-        /// 灰底承载未完成的单色进度；纯色格（已打满/上锁）关掉灰底，红或蓝铺满。
+        /// 中立未完成占领时显示灰底和实际填充；已占领或争夺时显示从进度映射出的双色分界。
         /// </summary>
         static void ApplyBarImages(HudBlock block, float redFill, float blueFill, bool showGray)
         {
             block.GrayFill.gameObject.SetActive(showGray);
             if (showGray)
             {
-                // HLL：灰底上只画当前推进方的单色条，绝不红蓝同时出现。
                 SetHorizontalFill(block.RedFill, Image.OriginHorizontal.Left, redFill);
                 SetHorizontalFill(block.BlueFill, Image.OriginHorizontal.Right, blueFill);
                 return;
             }
 
-            // 纯色归属：哪边满就铺哪边
-            if (blueFill >= redFill)
-            {
-                block.RedFill.enabled = false;
-                block.BlueFill.type = Image.Type.Simple;
-                block.BlueFill.fillAmount = 1f;
-                block.BlueFill.enabled = true;
-                return;
-            }
-
-            block.BlueFill.enabled = false;
+            // 已占领或争夺：用红底承载整格，再由蓝条从右侧覆盖到真实分界。
             block.RedFill.type = Image.Type.Simple;
             block.RedFill.fillAmount = 1f;
             block.RedFill.enabled = true;
+            SetHorizontalFill(block.BlueFill, Image.OriginHorizontal.Right, blueFill);
         }
 
         static void SetHorizontalFill(Image image, Image.OriginHorizontal origin, float amount)
