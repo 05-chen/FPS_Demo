@@ -539,7 +539,6 @@ public sealed class SteamLobbySession : MonoBehaviour
             return;
         }
 
-        _chosenTeams[clientId] = team;
         _postMatchWaitingClientIds.Remove(clientId);
         Notify("玩家 " + clientId + " 选择了" + TeamIdUtil.DisplayName(team) + "。");
 
@@ -555,11 +554,23 @@ public sealed class SteamLobbySession : MonoBehaviour
                 return;
             }
 
-            Managers.SpawnManager.Instance.SpawnForClient(team, clientId);
+            _chosenTeams[clientId] = team;
+            bool spawned = Managers.SpawnManager.Instance.SpawnForClient(team, clientId);
+            if (!spawned)
+            {
+                _chosenTeams.Remove(clientId);
+                GameLog.Error(LogCategory, "玩家生成失败，保持在选阵营阶段。clientId="
+                    + clientId + " team=" + team);
+                MatchGameManager.Instance?.ServerSetRoundPhase(MatchRoundPhase.FactionSelection);
+                Managers.SpawnManager.Instance.RequestFactionSelectForClient(clientId);
+                return;
+            }
+
             MatchGameManager.Instance?.ServerEnterPlayingIfSelecting();
             return;
         }
 
+        _chosenTeams[clientId] = team;
         TryStartMatch();
     }
 
@@ -675,24 +686,39 @@ public sealed class SteamLobbySession : MonoBehaviour
             MatchGameManager.ServerHandleMatchEntry(openedNewRound);
         }
 
+        int spawnedCount = 0;
+        List<ulong> failedClientIds = new List<ulong>();
         foreach (KeyValuePair<ulong, TeamId> pair in _chosenTeams)
         {
             if (!network.ConnectedClients.ContainsKey(pair.Key))
             {
+                failedClientIds.Add(pair.Key);
                 continue;
             }
 
-            Managers.SpawnManager.Instance.SpawnForClient(pair.Value, pair.Key);
+            if (Managers.SpawnManager.Instance.SpawnForClient(pair.Value, pair.Key))
+            {
+                spawnedCount++;
+            }
+            else
+            {
+                failedClientIds.Add(pair.Key);
+            }
         }
 
-        _gameplayStarted = true;
+        for (int i = 0; i < failedClientIds.Count; i++)
+        {
+            _chosenTeams.Remove(failedClientIds[i]);
+        }
+
+        _gameplayStarted = spawnedCount > 0;
         _matchLoadStarted = false;
         _matchLoadRoutine = null;
         _nextRoundPrepared = false;
 
         if (network.IsServer && MatchGameManager.Instance != null && MatchGameManager.Instance.IsSpawned)
         {
-            if (_chosenTeams.Count > 0)
+            if (spawnedCount > 0)
             {
                 MatchGameManager.Instance.ServerEnterPlayingIfSelecting();
             }
