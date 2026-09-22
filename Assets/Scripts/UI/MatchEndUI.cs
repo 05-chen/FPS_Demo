@@ -15,6 +15,7 @@ namespace UI
         Text _title;
         Text _subtitle;
         bool _awaitingDismiss;
+        TeamId _rememberedLocalTeam = TeamId.None;
 
         /// <summary>播报还在等点击时，大厅不能同时打开。</summary>
         public static bool IsAwaitingDismiss => Instance != null && Instance._awaitingDismiss;
@@ -33,6 +34,14 @@ namespace UI
             Instance = host.AddComponent<MatchEndUI>();
             Instance.Build();
             return Instance;
+        }
+
+        public void RememberLocalTeam(TeamId team)
+        {
+            if (TeamIdUtil.IsPlayable(team))
+            {
+                _rememberedLocalTeam = team;
+            }
         }
 
         void Build()
@@ -113,6 +122,11 @@ namespace UI
             if (local != null)
             {
                 localTeam = local.ResolveTeam();
+            }
+
+            if (!TeamIdUtil.IsPlayable(localTeam))
+            {
+                localTeam = _rememberedLocalTeam;
             }
 
             if (!TeamIdUtil.IsPlayable(winner))

@@ -87,7 +87,6 @@ namespace World
                 return;
             }
 
-            ApplyDefaultOwner();
             NetworkManager.OnClientDisconnectCallback += HandleClientDisconnected;
         }
 
@@ -123,19 +122,6 @@ namespace World
             UpdateCaptureLogic(activeRedWeight, activeBlueWeight);
             SnapRearGuardedProgress();
             LogCaptureState(activeRedWeight, activeBlueWeight);
-        }
-
-        /// <summary>开局写入默认归属：红 HQ 进度 +1，蓝 HQ 进度 -1。</summary>
-        void ApplyDefaultOwner()
-        {
-            OwnerTeam.Value = defaultOwner;
-            CaptureProgress.Value = defaultOwner switch
-            {
-                TeamId.Red => 1f,
-                TeamId.Blue => -1f,
-                _ => 0f
-            };
-            SyncHasBeenCaptured(CaptureProgress.Value);
         }
 
         /// <summary>打满 ±1 时闩上历史占领标记，且不再清回 false。</summary>

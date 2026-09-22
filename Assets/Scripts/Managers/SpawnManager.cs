@@ -55,45 +55,6 @@ namespace Managers
             response.Pending = false;
         }
 
-        /// <summary>
-        /// 清掉场景里内置摆放的 Player 占位体。
-        /// 场景每次重载都会把预制体实例重新实例化，NGO 的 OnServerLoadedScene 会把它当成
-        /// in-scene NetworkObject 生成，于是在真正生成的玩家之外凭空多出一个人。必须在生成玩家之前调用。
-        /// </summary>
-        public void PurgeScenePlacedPlayers()
-        {
-            if (!IsServer)
-            {
-                return;
-            }
-
-            NetworkObject[] networkObjects = FindObjectsByType<NetworkObject>(FindObjectsInactive.Include, FindObjectsSortMode.None);
-            for (int i = 0; i < networkObjects.Length; i++)
-            {
-                NetworkObject candidate = networkObjects[i];
-
-                // 只有 SpawnAsPlayerObject 生成的真正玩家 IsPlayerObject 才为 true，
-                // 场景内置摆放的占位体一律为 false，用这个字段把两者区分开。
-                if (candidate == null || candidate.IsPlayerObject || !candidate.TryGetComponent(out PlayerController _))
-                {
-                    continue;
-                }
-
-                GameLog.Warn("Spawn", "清掉场景内置的玩家占位体：" + candidate.name);
-
-                // 已经被 NGO 生成过的占位体只能走 Despawn；直接 Destroy 不会广播销毁消息，客户端会留下幽灵。
-                if (candidate.IsSpawned)
-                {
-                    candidate.Despawn(true);
-                }
-                else
-                {
-                    candidate.gameObject.SetActive(false);
-                    Destroy(candidate.gameObject);
-                }
-            }
-        }
-
         [ServerRpc(RequireOwnership = false)]
         public void SubmitFactionServerRpc(int teamValue, ServerRpcParams rpcParams = default)
         {
@@ -111,7 +72,7 @@ namespace Managers
         }
 
         /// <summary>
-        /// 主机可直接调用。不必先查 ConnectedClients，避免单机点了按钮却静默失败。
+        /// 主机可直接调用。必须仍在 ConnectedClients 中，否则拒绝生成（H4：防幽灵 clientId）。
         /// </summary>
         public bool SpawnForClient(TeamId team, ulong clientId)
         {
@@ -127,6 +88,13 @@ namespace Managers
                 return false;
             }
 
+            NetworkManager network = NetworkManager.Singleton;
+            if (network == null || !network.ConnectedClients.TryGetValue(clientId, out var client))
+            {
+                GameLog.Warn("Spawn", "clientId=" + clientId + " 已不在线，拒绝 SpawnForClient。");
+                return false;
+            }
+
             BoxCollider targetZone = GetRandomSpawnZone(team);
             if (targetZone == null)
             {
@@ -137,12 +105,7 @@ namespace Managers
             Vector3 spawnPosition = GetRandomPointInZone(targetZone);
             Quaternion spawnRotation = targetZone.transform.rotation;
 
-            NetworkObject playerNet = null;
-            if (NetworkManager.Singleton.ConnectedClients.TryGetValue(clientId, out var client))
-            {
-                playerNet = client.PlayerObject;
-            }
-
+            NetworkObject playerNet = client.PlayerObject;
             if (playerNet == null)
             {
                 playerNet = SpawnPlayerForClient(clientId, spawnPosition, spawnRotation);
@@ -190,13 +153,7 @@ namespace Managers
         [ClientRpc]
         void ShowFactionSelectClientRpc(ClientRpcParams rpcParams = default)
         {
-            // 必须走 SteamLobbyUI：它会 HideLobbyVisuals，否则大厅面板（创建房间/邀请码）会压在选阵营下面。
-            if (SteamLobbyUI.Instance != null)
-            {
-                SteamLobbyUI.Instance.ShowFactionSelectRequestedByServer();
-                return;
-            }
-
+            SteamLobbyUI.HideForFactionSelection();
             GameplayGate.Block();
             Cursor.lockState = CursorLockMode.None;
             Cursor.visible = true;

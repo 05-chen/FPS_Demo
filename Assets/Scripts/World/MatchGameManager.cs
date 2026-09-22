@@ -1,4 +1,5 @@
 using Core;
+using System.Collections;
 using UI;
 using Unity.Netcode;
 using UnityEngine;
@@ -39,6 +40,18 @@ namespace World
             NetworkVariableReadPermission.Everyone,
             NetworkVariableWritePermission.Server);
 
+        public readonly NetworkVariable<TeamId> WinningTeam = new NetworkVariable<TeamId>(
+            TeamId.None,
+            NetworkVariableReadPermission.Everyone,
+            NetworkVariableWritePermission.Server);
+
+        public readonly NetworkVariable<bool> MatchEndedBySweep = new NetworkVariable<bool>(
+            false,
+            NetworkVariableReadPermission.Everyone,
+            NetworkVariableWritePermission.Server);
+
+        Coroutine _matchEndBootstrap;
+
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
         static void ResetStatics() => Instance = null;
 
@@ -48,12 +61,47 @@ namespace World
             Instance = this;
             if (!IsServer)
             {
+                MatchEnded.OnValueChanged += OnMatchEndedChanged;
+                _matchEndBootstrap = StartCoroutine(BootstrapMatchEnd());
                 return;
             }
 
-            MatchEnded.Value = false;
-            MatchTimer.Value = Mathf.Max(1f, matchDurationSeconds);
-            GameLog.Info("Match", "对局计时开始 " + MatchTimer.Value.ToString("F0") + " 秒");
+            // 局内状态只允许由 ServerHandleMatchEntry/ServerBeginNewRound 初始化。
+            // OnNetworkSpawn 可能因场景重载或网络生命周期重复执行，不能在这里清状态。
+        }
+
+        IEnumerator BootstrapMatchEnd()
+        {
+            // 等待 NetworkVariable 初始快照和玩家对象恢复完成。
+            yield return null;
+            TryShowSynchronizedMatchEnd();
+            _matchEndBootstrap = null;
+        }
+
+        void OnMatchEndedChanged(bool previous, bool current)
+        {
+            if (!current)
+            {
+                return;
+            }
+
+            if (_matchEndBootstrap == null)
+            {
+                _matchEndBootstrap = StartCoroutine(BootstrapMatchEnd());
+            }
+        }
+
+        void TryShowSynchronizedMatchEnd()
+        {
+            if (!MatchEnded.Value || MatchEndUI.IsAwaitingDismiss)
+            {
+                return;
+            }
+
+            GameplayGate.Block();
+            MatchEndUI.EnsureInstance().Show(WinningTeam.Value, MatchEndedBySweep.Value);
+            GameLog.Info("Match", "根据同步状态恢复结算界面 winner=" +
+                WinningTeam.Value + " sweep=" + MatchEndedBySweep.Value);
         }
 
         /// <summary>
@@ -105,6 +153,9 @@ namespace World
 
             MatchEnded.Value = false;
             MatchTimer.Value = Mathf.Max(1f, matchDurationSeconds);
+            WinningTeam.Value = TeamId.None;
+            MatchEndedBySweep.Value = false;
+            GameLog.Info("Match", "对局计时开始 " + MatchTimer.Value.ToString("F0") + " 秒");
         }
 
         public override void OnNetworkDespawn()
@@ -112,6 +163,13 @@ namespace World
             if (Instance == this)
             {
                 Instance = null;
+            }
+
+            MatchEnded.OnValueChanged -= OnMatchEndedChanged;
+            if (_matchEndBootstrap != null)
+            {
+                StopCoroutine(_matchEndBootstrap);
+                _matchEndBootstrap = null;
             }
 
             base.OnNetworkDespawn();
@@ -122,6 +180,13 @@ namespace World
             if (Instance == this)
             {
                 Instance = null;
+            }
+
+            MatchEnded.OnValueChanged -= OnMatchEndedChanged;
+            if (_matchEndBootstrap != null)
+            {
+                StopCoroutine(_matchEndBootstrap);
+                _matchEndBootstrap = null;
             }
 
             base.OnDestroy();
@@ -197,14 +262,30 @@ namespace World
 
             MatchEnded.Value = true;
             MatchTimer.Value = 0f;
+            WinningTeam.Value = winner;
+            MatchEndedBySweep.Value = isSweep;
             string reason = isSweep ? "推平" : "限时";
             string winnerName = TeamIdUtil.IsPlayable(winner) ? TeamIdUtil.DisplayName(winner) : "平局";
             GameLog.Info("Match", "对局结束 [" + reason + "] 胜者=" + winnerName);
             AnnounceMatchEndClientRpc((int)winner, isSweep);
         }
 
+        public void SendMatchEndStateToClient(ulong clientId)
+        {
+            if (!IsServer || !IsSpawned || !MatchEnded.Value)
+            {
+                return;
+            }
+
+            ClientRpcParams target = new ClientRpcParams
+            {
+                Send = new ClientRpcSendParams { TargetClientIds = new[] { clientId } }
+            };
+            AnnounceMatchEndClientRpc((int)WinningTeam.Value, MatchEndedBySweep.Value, target);
+        }
+
         [ClientRpc]
-        void AnnounceMatchEndClientRpc(int winnerTeamValue, bool isSweep)
+        void AnnounceMatchEndClientRpc(int winnerTeamValue, bool isSweep, ClientRpcParams rpcParams = default)
         {
             TeamId winner = TeamIdUtil.FromNetwork(winnerTeamValue);
             GameplayGate.Block();

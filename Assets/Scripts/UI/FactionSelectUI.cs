@@ -181,6 +181,7 @@ namespace UI
             }
 
             GameLog.Info("Faction", TeamIdUtil.DisplayName(team));
+            MatchEndUI.EnsureInstance().RememberLocalTeam(team);
 
             NetworkManager network = NetworkManager.Singleton;
             if (network == null || !network.IsListening)

@@ -197,6 +197,20 @@ public sealed class SteamLobbyUI : MonoBehaviour
         RuntimeUiFactory.SetCameraActive(lobbyUi._overviewCamera, false);
     }
 
+    /// <summary>
+    /// 收起大厅视觉，但保留大厅场景相机，供主机和客户端统一切换到选阵营界面。
+    /// </summary>
+    public static void HideForFactionSelection()
+    {
+        SteamLobbyUI lobbyUi = Instance;
+        if (lobbyUi == null)
+        {
+            return;
+        }
+
+        lobbyUi.HideLobbyVisuals(hideOverviewCamera: false);
+    }
+
     void BuildUi()
     {
         Canvas canvas = RuntimeUiFactory.CreateOverlayCanvas(transform, "SteamLobbyCanvas", RuntimeUiFactory.LobbySortingOrder);
@@ -361,21 +375,13 @@ public sealed class SteamLobbyUI : MonoBehaviour
     }
 
     /// <summary>
-    /// 主机定向通知客户端弹选阵营。与本机 NetworkStarted 共用同一条路径，确保会关掉大厅面板。
-    /// </summary>
-    public void ShowFactionSelectRequestedByServer()
-    {
-        ShowFactionSelect();
-        OnStatusChanged("请选择红方或蓝方。");
-    }
-
-    /// <summary>
     /// 主机侧需要选阵营时弹面板。客户端不再走这里（它拿不到权威的对局状态），
     /// 改由主机定向发 RequestFactionSelectForClient。
     /// </summary>
     void ShowOnlineFactionSelect()
     {
-        ShowFactionSelectRequestedByServer();
+        ShowFactionSelect();
+        OnStatusChanged("请选择红方或蓝方。");
     }
 
     void ShowFactionSelect()
