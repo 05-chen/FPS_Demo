@@ -3,6 +3,7 @@ using Unity.Netcode;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.UI;
+using World;
 
 /// <summary>
 /// Steam 联机测试界面：创建房间、邀请好友、粘贴大厅 ID 加入。
@@ -347,8 +348,8 @@ public sealed class SteamLobbyUI : MonoBehaviour
     {
         UI.CombatStatusUI.Instance?.Hide();
 
-        MatchRoundPhase phase = World.MatchGameManager.CurrentPhase;
-        if (phase == World.MatchRoundPhase.FactionSelection || phase == World.MatchRoundPhase.Playing)
+        MatchRoundPhase phase = MatchGameManager.CurrentPhase;
+        if (phase == MatchRoundPhase.FactionSelection || phase == MatchRoundPhase.Playing)
         {
             ShowPostMatchFactionSelect();
             return;
