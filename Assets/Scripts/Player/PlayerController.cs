@@ -7,7 +7,7 @@ using Weapon;
 
 /// <summary>
 /// 1v1 FPS 玩家控制。
-/// 联网后只有 Owner 读输入、开摄像机；阵营由服务器写入 NetworkVariable，防止两边抢同一个阵营。
+/// 联网后只有 Owner 读输入、开摄像机；阵营由服务器写入NetworkVariable。
 /// </summary>
 [DisallowMultipleComponent]
 [RequireComponent(typeof(CharacterController))]
@@ -302,12 +302,6 @@ public sealed class PlayerController : NetworkBehaviour
     {
         TeamId requested = TeamIdUtil.FromNetwork(teamValue);
         if (!TeamIdUtil.IsPlayable(requested))
-        {
-            RejectTeamClientRpc(teamValue, TargetOwner());
-            return;
-        }
-
-        if (PlayerRegistry.IsTeamTaken(requested, this))
         {
             RejectTeamClientRpc(teamValue, TargetOwner());
             return;

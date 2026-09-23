@@ -132,7 +132,7 @@ public sealed class SteamLobbySession : MonoBehaviour
         SetState(LobbySessionState.CreatingLobby);
         Notify("正在创建 Steam 房间...");
         BindSteamCallbacks();
-        SteamAPICall_t call = SteamMatchmaking.CreateLobby(ELobbyType.k_ELobbyTypePublic, 2);
+        SteamAPICall_t call = SteamMatchmaking.CreateLobby(ELobbyType.k_ELobbyTypePublic, MatchCapacity.MaxPlayers);
         _lobbyCreated.Set(call);
     }
 

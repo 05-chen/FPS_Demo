@@ -5,6 +5,7 @@ using System.Runtime.InteropServices;
 using Steamworks;
 using Unity.Netcode;
 using UnityEngine;
+using Core;
 
 /// <summary>
 /// NGO 传输层：用 SteamNetworkingSockets 做 P2P，不再走 127.0.0.1。
@@ -16,7 +17,7 @@ public sealed class SteamNetworkTransport : NetworkTransport
 {
     public const ulong SteamServerClientId = 0;
     const int MessageBufferSize = 32;
-    const int MaxClients = 1;
+    const int MaxClients = MatchCapacity.MaxRemoteClients;
     const string LogCategory = "SteamTransport";
 
     public override ulong ServerClientId => SteamServerClientId;
@@ -307,7 +308,7 @@ public sealed class SteamNetworkTransport : NetworkTransport
         if (_clientConnections.Count >= MaxClients)
         {
             SteamNetworkingSockets.CloseConnection(connection, 0, "Lobby full", false);
-            GameLog.Warn(LogCategory, "拒绝多余连接：1v1 房间已满。");
+            GameLog.Warn(LogCategory, "拒绝多余连接：房间已满（最多 " + MatchCapacity.MaxPlayers + " 人 ）。");
             return;
         }
 

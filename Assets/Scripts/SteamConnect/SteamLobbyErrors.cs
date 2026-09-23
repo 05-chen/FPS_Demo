@@ -1,4 +1,5 @@
 using Steamworks;
+using Core;
 
 /// <summary>
 /// 把 Steam 错误码翻译成玩家能看懂的中文。UI 只显示字符串，不关心枚举。
@@ -40,7 +41,7 @@ public static class SteamLobbyErrors
             case EChatRoomEnterResponse.k_EChatRoomEnterResponseNotAllowed:
                 return "加入失败：没有权限。请让主机点「邀请好友」，或确认两边都用 AppID 480。";
             case EChatRoomEnterResponse.k_EChatRoomEnterResponseFull:
-                return "加入失败：房间已满（最多 2 人）。";
+                return "加入失败：房间已满（最多" + MatchCapacity.MaxPlayers + "人）。";
             case EChatRoomEnterResponse.k_EChatRoomEnterResponseLimited:
                 return "加入失败：当前 Steam 账号是受限账号。";
             case EChatRoomEnterResponse.k_EChatRoomEnterResponseBanned:
