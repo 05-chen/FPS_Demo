@@ -103,6 +103,13 @@ namespace Managers
                 return false;
             }
 
+            if (SteamLobbySession.Instance != null
+                && !SteamLobbySession.Instance.AllowsSpawn(clientId))
+            {
+                GameLog.Warn("Spawn", "clientId=" + clientId + " 无对局生成资格，拒绝生成。");
+                return false;
+            }
+
             if (!TeamIdUtil.IsPlayable(team))
             {
                 GameLog.Warn("Spawn", "无法为未选择的阵营生成玩家。");

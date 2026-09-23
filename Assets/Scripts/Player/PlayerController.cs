@@ -315,7 +315,7 @@ public sealed class PlayerController : NetworkBehaviour
     {
         _waitingForTeamAck = false;
         SetTeam(TeamId.None);
-        GameLog.Warn("Player", "阵营已被占用，请选另一方。");
+        GameLog.Warn("Player", "非法阵营，已拒绝。");
         TeamRejected?.Invoke(TeamIdUtil.FromNetwork(teamValue));
     }
 
