@@ -61,4 +61,14 @@ public class PlayerSessionRulesTests
         Assert.AreEqual(PlayerSessionStatus.InLobby, roster.GetStatus(2));
         Assert.AreEqual(PlayerSessionStatus.None, roster.GetStatus(3));
     }
+
+    [Test]
+    public void OnlyInMatch_CountsForCapture()
+    {
+        Assert.IsTrue(PlayerSessionRules.CanCountForCapture(PlayerSessionStatus.InMatch));
+        Assert.IsFalse(PlayerSessionRules.CanCountForCapture(PlayerSessionStatus.InLobby));
+        Assert.IsFalse(PlayerSessionRules.CanCountForCapture(PlayerSessionStatus.FactionChosen));
+        Assert.IsFalse(PlayerSessionRules.CanCountForCapture(PlayerSessionStatus.PostMatchWaiting));
+        Assert.IsFalse(PlayerSessionRules.CanCountForCapture(PlayerSessionStatus.None));
+    }
 }

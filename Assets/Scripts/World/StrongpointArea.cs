@@ -122,6 +122,11 @@ namespace World
                 return;
             }
 
+            if (!CanCountOccupant(clientId))
+            {
+                return;
+            }
+
             _playersInZone.Add(clientId);
             for (int i = 0; i < _trackedColliders.Count; i++)
             {
@@ -384,6 +389,11 @@ namespace World
             // 补上 Trigger 漏报的活人；人已经走出球体、或不再 Alive，下面的遍历会删掉。
             foreach (var pair in network.ConnectedClients)
             {
+                if (!CanCountOccupant(pair.Key))
+                {
+                    continue;
+                }
+
                 NetworkObject playerObject = pair.Value.PlayerObject;
                 if (playerObject != null && IsLivingInside(playerObject, zone))
                 {
@@ -407,6 +417,12 @@ namespace World
 
                 // 倒地 / 死亡立刻出名单。只 continue 的话，碰撞被关掉后这份 Id 会一直留着。
                 if (!IsLivingInside(client.PlayerObject, zone))
+                {
+                    RemoveOccupant(clientId);
+                    continue;
+                }
+
+                if (!CanCountOccupant(clientId))
                 {
                     RemoveOccupant(clientId);
                     continue;
@@ -485,5 +501,15 @@ namespace World
 
         static bool TryGetPlayerClientId(Collider other, out ulong clientId) =>
             SectorTriggerFilter.TryGetPlayerClientId(other, out clientId);
+
+        static bool CanCountOccupant(ulong clientId)
+        {
+            if (SectorTestDummy.IsTracked(clientId))
+            {
+                return true;
+            }
+
+            return SteamLobbySession.CanCountClientForCapture(clientId);
+        }
     }
 }

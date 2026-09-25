@@ -598,6 +598,17 @@ public sealed class SteamLobbySession : MonoBehaviour
         return _roster.HasChosenTeam(clientId);
     }
 
+    /// <summary> 占点人头：必须是当前对局玩家。会话未建时放行，避免练习/单测误伤。 </summary>
+    public static bool CanCountClientForCapture(ulong clientId)
+    {
+        if (Instance == null)
+        {
+            return true;
+        }
+
+        return PlayerSessionRules.CanCountForCapture(Instance._roster.GetStatus(clientId));
+    }
+
     void TryStartMatch()
     {
         NetworkManager network = NetworkManager.Singleton;

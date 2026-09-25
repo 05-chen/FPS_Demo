@@ -62,5 +62,11 @@ namespace Core
             return status == PlayerSessionStatus.None
                 || status == PlayerSessionStatus.PostMatchWaiting;
         }
+
+        /// <summary>只有本局玩家计入占点人头。倒地/死亡仍是 InMatch，是否算人头由血量另判。</summary>
+        public static bool CanCountForCapture(PlayerSessionStatus status)
+        {
+            return status == PlayerSessionStatus.InMatch;
+        }
     }
 }
