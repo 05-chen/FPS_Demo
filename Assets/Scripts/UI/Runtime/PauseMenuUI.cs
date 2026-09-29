@@ -1,3 +1,4 @@
+using UI.Presenters;
 using Unity.Netcode;
 using UnityEngine;
 
@@ -42,7 +43,7 @@ public sealed class PauseMenuUI : MonoBehaviour
             return;
         }
 
-        if (GameplayGate.IsBlocked)
+        if (!PauseMenuPresenter.CanOpenPauseMenu())
         {
             return;
         }
@@ -53,21 +54,20 @@ public sealed class PauseMenuUI : MonoBehaviour
     void PauseGame()
     {
         bool networked = NetworkManager.Singleton != null && NetworkManager.Singleton.IsListening;
-        PauseGate.Pause(freezeTime: !networked);
+        PauseMenuPresenter.Pause(networked);
         SetVisible(true);
     }
 
     void ResumeGame()
     {
-        PauseGate.Resume();
+        PauseMenuPresenter.Resume();
         SetVisible(false);
     }
 
     void QuitToLobby()
     {
-        PauseGate.Resume();
+        PauseMenuPresenter.RequestQuitToLobby(_onQuitToLobby);
         SetVisible(false);
-        _onQuitToLobby?.Invoke();
     }
 
     void SetVisible(bool visible)

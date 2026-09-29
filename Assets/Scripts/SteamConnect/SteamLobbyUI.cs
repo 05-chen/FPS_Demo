@@ -53,7 +53,7 @@ public sealed class SteamLobbyUI : MonoBehaviour
         _overviewCamera.tag = "MainCamera";
         BuildUi();
         DisableScenePlayers();
-        GameplayGate.Block();
+        UI.Presenters.LobbyPresenter.EnterBlockingLobby();
         PauseMenuUI.Create(transform, QuitToLobby);
         HideFactionSelect();
     }
@@ -230,16 +230,10 @@ public sealed class SteamLobbyUI : MonoBehaviour
         }
 
         _awaitingPostMatchAdmission = false;
-        UI.MatchEndUI.EnsureInstance().ForceHide();
+        UI.Presenters.MatchEndPresenter.ForceHide();
         Instance.OnStatusChanged("下一局已准备完成，请选择阵营。");
-        FactionSelectionPanel factionUi = FactionSelectionPanel.Instance;
-        if (factionUi == null)
-        {
-            factionUi = FindFirstObjectByType<FactionSelectionPanel>(FindObjectsInactive.Include);
-        }
-
-        factionUi?.ShowUI(true);
         HideForFactionSelection();
+        UI.Presenters.FactionSelectionPresenter.Show();
     }
 
     /// <summary>显示结算期已连接但尚未获准进入下一局的等待提示。</summary>
@@ -251,11 +245,8 @@ public sealed class SteamLobbyUI : MonoBehaviour
         }
 
         _awaitingPostMatchAdmission = true;
-        UI.MatchEndUI.EnsureInstance().ForceHide();
-        if (FactionSelectionPanel.Instance != null)
-        {
-            FactionSelectionPanel.Instance.ShowUI(false);
-        }
+        UI.Presenters.MatchEndPresenter.ForceHide();
+        UI.Presenters.FactionSelectionPresenter.Hide();
 
         Instance.ShowLobby();
         Instance.OnStatusChanged("已连接服务器，本局已结束。请等待当前结算结束。");
@@ -269,11 +260,8 @@ public sealed class SteamLobbyUI : MonoBehaviour
             return;
         }
 
-        UI.MatchEndUI.EnsureInstance().ForceHide();
-        if (FactionSelectionPanel.Instance != null)
-        {
-            FactionSelectionPanel.Instance.ShowUI(false);
-        }
+        UI.Presenters.MatchEndPresenter.ForceHide();
+        UI.Presenters.FactionSelectionPresenter.Hide();
 
         Instance.OnStatusChanged("本局已结束。请等待当前结算结束。");
     }
@@ -394,8 +382,8 @@ public sealed class SteamLobbyUI : MonoBehaviour
             return;
         }
         PauseGate.Resume();
-        GameplayGate.Block();
-        UI.CombatStatusUI.Instance?.Hide(); // 兜底：任何回到大厅的路径都不该带着死亡黑幕
+        UI.Presenters.LobbyPresenter.EnterBlockingLobby();
+        UI.Presenters.CombatStatusPresenter.Hide(); // 兜底：任何回到大厅的路径都不该带着死亡黑幕
 
         if (_lobbyCanvasRoot != null)
         {
@@ -463,25 +451,7 @@ public sealed class SteamLobbyUI : MonoBehaviour
             RuntimeUiFactory.SetCameraActive(_overviewCamera, true);
         }
 
-        GameplayGate.Block();
-        Cursor.lockState = CursorLockMode.None;
-        Cursor.visible = true;
-
-        FactionSelectionPanel factionUi = FactionSelectionPanel.Instance;
-        if (factionUi == null)
-        {
-            factionUi = FindFirstObjectByType<FactionSelectionPanel>(FindObjectsInactive.Include);
-        }
-
-        if (factionUi == null)
-        {
-            OnStatusChanged("找不到选阵营界面。请在场景 Canvas 上挂 UI.FactionSelectionPanel。");
-            ShowLobby();
-            return;
-        }
-
-        factionUi.gameObject.SetActive(true);
-        factionUi.ShowUI(true);
+        UI.Presenters.FactionSelectionPresenter.Show();
     }
 
     /// <summary>当前是否还在大厅（单机练习）场景。俯视相机只在大厅场景有意义。</summary>
@@ -505,7 +475,7 @@ public sealed class SteamLobbyUI : MonoBehaviour
     /// <summary>选完阵营后才真正开始操作角色。</summary>
     public static void ReleaseGameplay()
     {
-        GameplayGate.Release();
+        GameplayGate.ReleaseAll();
     }
 
     void OnStatusChanged(string message)

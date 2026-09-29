@@ -214,24 +214,7 @@ namespace Managers
         void ShowFactionSelectClientRpc(ClientRpcParams rpcParams = default)
         {
             SteamLobbyUI.HideForFactionSelection();
-            GameplayGate.Block();
-            Cursor.lockState = CursorLockMode.None;
-            Cursor.visible = true;
-
-            FactionSelectionPanel factionUi = FactionSelectionPanel.Instance;
-            if (factionUi == null)
-            {
-                factionUi = FindFirstObjectByType<FactionSelectionPanel>(FindObjectsInactive.Include);
-            }
-
-            if (factionUi == null)
-            {
-                GameLog.Warn("Spawn", "找不到选阵营界面，重连玩家无法选阵营。");
-                return;
-            }
-
-            factionUi.gameObject.SetActive(true);
-            factionUi.ShowUI(true);
+            UI.Presenters.FactionSelectionPresenter.Show();
         }
 
         [ClientRpc]
@@ -366,11 +349,10 @@ namespace Managers
             {
                 FactionSelectionPanel.Instance.OnSpawnSuccess(team, pos, rot);
             }
-
-            GameplayGate.Release();
-            SteamLobbyUI.HideOverviewForGameplay();
-            Cursor.lockState = CursorLockMode.Locked;
-            Cursor.visible = false;
+            else
+            {
+                UI.Presenters.FactionSelectionPresenter.NotifyLocalSpawnPresentationReady();
+            }
         }
     }
 }

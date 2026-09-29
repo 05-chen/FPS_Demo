@@ -133,16 +133,15 @@ namespace World
                 || current == MatchRoundPhase.Playing
                 || current == MatchRoundPhase.PreparingNextRound)
             {
-                MatchEndUI.EnsureInstance().ForceHide();
+                UI.Presenters.MatchEndPresenter.ForceHide();
             }
 
             if (current == MatchRoundPhase.PostMatchWaiting
                 || current == MatchRoundPhase.PreparingNextRound)
             {
-                // 结算等待阶段：未参与本局的客户端由定向 RPC 显示等待，不弹旧局结算。
                 if (SteamLobbyUI.IsAwaitingPostMatchAdmission)
                 {
-                    MatchEndUI.EnsureInstance().ForceHide();
+                    UI.Presenters.MatchEndPresenter.ForceHide();
                 }
             }
         }
@@ -169,8 +168,7 @@ namespace World
                 return;
             }
 
-            GameplayGate.Block();
-            MatchEndUI.EnsureInstance().Show(WinningTeam.Value, MatchEndedBySweep.Value);
+            UI.Presenters.MatchEndPresenter.Show(WinningTeam.Value, MatchEndedBySweep.Value);
             GameLog.Info("Match", "根据同步状态恢复结算界面 winner=" +
                 WinningTeam.Value + " sweep=" + MatchEndedBySweep.Value);
         }
@@ -247,7 +245,7 @@ namespace World
         public void NotifyMatchResetClientRpc()
         {
             UI.SectorHUDUI.InvalidateManagerCache();
-            MatchEndUI.EnsureInstance().ForceHide();
+            UI.Presenters.MatchEndPresenter.ForceHide();
             GameLog.Info("Match", "客户端已收到开局重置通知。");
         }
 
@@ -449,8 +447,7 @@ namespace World
             }
 
             TeamId winner = TeamIdUtil.FromNetwork(winnerTeamValue);
-            GameplayGate.Block();
-            MatchEndUI.EnsureInstance().Show(winner, isSweep);
+            UI.Presenters.MatchEndPresenter.Show(winner, isSweep);
             GameLog.Info("Match", "收到结算 RPC winner=" + winner + " sweep=" + isSweep);
         }
 

@@ -1,4 +1,5 @@
 using Core;
+using UI.Presenters;
 using UI.Runtime;
 using UnityEngine;
 using UnityEngine.UI;
@@ -6,7 +7,7 @@ using UnityEngine.UI;
 namespace UI
 {
     /// <summary>
-    /// 结算弹窗：VICTORY / DEFEAT / DRAW。由 MatchGameManager ClientRpc 唤起。
+    /// 结算弹窗表现。显示/关闭业务由 <see cref="MatchEndPresenter"/> 驱动。
     /// </summary>
     public sealed class MatchEndUI : MonoBehaviour
     {
@@ -94,18 +95,11 @@ namespace UI
             Cursor.visible = true;
             if (Input.GetMouseButtonDown(0))
             {
-                Dismiss();
+                MatchEndPresenter.RequestDismiss();
             }
         }
 
-        /// <summary>关掉播报并进入等待下一局。结算不会结束对话，绝对不在这里断网 </summary>
-        void Dismiss()
-        {
-            ForceHide();
-            World.MatchGameManager.NotifyMatchEndDismissed();
-        }
-
-        /// <summary>强制关闭结算界面（不触发下一局逻辑）。下一局准备完成后可重复调用。</summary>
+        /// <summary>强制关闭结算界面（不触发下一局逻辑）。</summary>
         public void ForceHide()
         {
             _awaitingDismiss = false;
@@ -115,8 +109,14 @@ namespace UI
             }
         }
 
-        /// <summary>winner=None 为平局；按本地玩家阵营显示胜/负。</summary>
+        /// <summary>兼容旧入口：转 Presenter。</summary>
         public void Show(TeamId winner, bool isSweep)
+        {
+            MatchEndPresenter.Show(winner, isSweep);
+        }
+
+        /// <summary>只更新文案与显隐。</summary>
+        public void ShowVisual(TeamId winner, bool isSweep)
         {
             if (_canvasRoot == null)
             {
@@ -154,7 +154,6 @@ namespace UI
                 _subtitle.text = isSweep ? "对方已占领我方指挥部" : "时间到 · 占领战区更少";
             }
 
-            SteamLobbyUI.HideForMatchEnd();
             _awaitingDismiss = true;
             _canvasRoot.SetActive(true);
             Cursor.lockState = CursorLockMode.None;

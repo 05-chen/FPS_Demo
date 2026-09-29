@@ -147,13 +147,11 @@ public class PlayerHealth : NetworkBehaviour
         {
             case PlayerLifeState.Downed:
                 _statusController?.SetInjuryFromLifeState(InjuryState.DBNO_Torso);
-                UI.CombatStatusUI.EnsureInstance().ShowDowned(bleedOutSeconds);
-                GameplayGate.BlockInputOnly();
+                UI.Presenters.CombatStatusPresenter.ShowDowned(bleedOutSeconds);
                 break;
             case PlayerLifeState.Dead:
                 _statusController?.SetInjuryFromLifeState(InjuryState.InstanceDeath_Head);
-                UI.CombatStatusUI.EnsureInstance().ShowDead(deadRespawnDelay);
-                GameplayGate.BlockInputOnly();
+                UI.Presenters.CombatStatusPresenter.ShowDead(deadRespawnDelay);
                 break;
             default:
                 // 复活黑屏必须等 SpawnManager.NotifyPlayerSpawnedClientRpc，避免延迟下提前关闭。
@@ -569,8 +567,7 @@ public class PlayerHealth : NetworkBehaviour
             return;
         }
 
-        UI.CombatStatusUI.Instance?.Hide();
-        GameplayGate.Release();
+        UI.Presenters.CombatStatusPresenter.Hide();
         if (_playerController == null)
         {
             return;

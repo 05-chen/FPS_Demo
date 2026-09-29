@@ -158,7 +158,7 @@ namespace Player
             if (GameplayGate.CurrentMode == GameplayGate.Mode.InputLocked &&
                 (_playerHealth == null || _playerHealth.LifeState == PlayerLifeState.Alive))
             {
-                GameplayGate.Release();
+                GameplayGate.Release(GameplayGate.Reason.Downed);
             }
         }
 

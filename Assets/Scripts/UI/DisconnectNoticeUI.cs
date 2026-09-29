@@ -118,7 +118,7 @@ namespace UI
                 ? "与主机失去连接。"
                 : reason;
             SteamLobbyUI.HideForMatchEnd();
-            GameplayGate.Block();
+            GameplayGate.Block(GameplayGate.Reason.DisconnectNotice);
             _awaitingDismiss = true;
             _canvasRoot.SetActive(true);
             Cursor.lockState = CursorLockMode.None;

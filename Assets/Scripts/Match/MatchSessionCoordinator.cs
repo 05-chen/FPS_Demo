@@ -153,10 +153,7 @@ namespace Match
             }
 
             _matchLoadStarted = true;
-            if (UI.FactionSelectionPanel.Instance != null)
-            {
-                UI.FactionSelectionPanel.Instance.ShowUI(false);
-            }
+            UI.Presenters.FactionSelectionPresenter.Hide();
 
             StopMatchLoad();
             _matchLoadRoutine = _runner.StartCoroutine(LoadMatchAndSpawn());
@@ -206,10 +203,7 @@ namespace Match
 
             ServerDespawnAllPlayerObjects();
 
-            if (UI.FactionSelectionPanel.Instance != null)
-            {
-                UI.FactionSelectionPanel.Instance.ShowUI(false);
-            }
+            UI.Presenters.FactionSelectionPresenter.Hide();
 
             SectorManager.ServerResetAllForNewMatch();
             if (match != null && match.IsSpawned)
