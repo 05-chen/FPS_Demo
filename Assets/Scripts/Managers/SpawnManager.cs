@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using Core;
+using UI;
 using Unity.Netcode;
 using UnityEngine;
 
@@ -214,10 +215,10 @@ namespace Managers
             Cursor.lockState = CursorLockMode.None;
             Cursor.visible = true;
 
-            UI.FactionSelectUI factionUi = UI.FactionSelectUI.Instance;
+            FactionSelectionPanel factionUi = FactionSelectionPanel.Instance;
             if (factionUi == null)
             {
-                factionUi = FindFirstObjectByType<UI.FactionSelectUI>(FindObjectsInactive.Include);
+                factionUi = FindFirstObjectByType<FactionSelectionPanel>(FindObjectsInactive.Include);
             }
 
             if (factionUi == null)
@@ -358,9 +359,9 @@ namespace Managers
             TeamId team = TeamIdUtil.FromNetwork(teamValue);
             UI.CombatStatusUI.Instance?.Hide();
 
-            if (UI.FactionSelectUI.Instance != null)
+            if (FactionSelectionPanel.Instance != null)
             {
-                UI.FactionSelectUI.Instance.OnSpawnSuccess(team, pos, rot);
+                FactionSelectionPanel.Instance.OnSpawnSuccess(team, pos, rot);
             }
 
             GameplayGate.Release();

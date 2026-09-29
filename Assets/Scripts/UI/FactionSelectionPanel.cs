@@ -1,6 +1,7 @@
 using System.Collections;
 using Core;
 using Managers;
+using UI.Runtime;
 using Unity.Netcode;
 using UnityEngine;
 using UnityEngine.UI;
@@ -12,9 +13,9 @@ namespace UI
     /// 场景 Canvas 默认 sortingOrder=0，会被暂停菜单等高层 Canvas 挡住点击。
     /// 所以选阵营也用同一套 RuntimeUiFactory Overlay（sortingOrder=100）。
     /// </summary>
-    public class FactionSelectUI : MonoBehaviour
+    public class FactionSelectionPanel : MonoBehaviour
     {
-        public static FactionSelectUI Instance { get; private set; }
+        public static FactionSelectionPanel Instance { get; private set; }
 
         [Header("场景里的旧面板（可留空，运行时会再做一套能点的按钮）")]
         [SerializeField] GameObject panel;

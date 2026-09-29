@@ -1,6 +1,8 @@
 using Unity.Netcode;
 using UnityEngine;
 
+namespace UI.Runtime
+{
 /// <summary>
 /// Esc 暂停：继续游戏，或退出到大厅（不关整个游戏）。
 /// </summary>
@@ -123,4 +125,5 @@ public sealed class PauseMenuUI : MonoBehaviour
             new Color(0.65f, 0.22f, 0.2f),
             QuitToLobby);
     }
+}
 }

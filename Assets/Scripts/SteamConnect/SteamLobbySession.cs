@@ -626,9 +626,9 @@ public sealed class SteamLobbySession : MonoBehaviour
         }
 
         _matchLoadStarted = true;
-        if (UI.FactionSelectUI.Instance != null)
+        if (UI.FactionSelectionPanel.Instance != null)
         {
-            UI.FactionSelectUI.Instance.ShowUI(false);
+            UI.FactionSelectionPanel.Instance.ShowUI(false);
         }
 
         StopMatchLoad();
@@ -1204,9 +1204,9 @@ public sealed class SteamLobbySession : MonoBehaviour
 
         ServerDespawnAllPlayerObjects();
 
-        if (UI.FactionSelectUI.Instance != null)
+        if (UI.FactionSelectionPanel.Instance != null)
         {
-            UI.FactionSelectUI.Instance.ShowUI(false);
+            UI.FactionSelectionPanel.Instance.ShowUI(false);
         }
 
         // 原地重置占点与 MatchGameManager，不重新加载场景、不 Instantiate 新的 MatchGameManager。

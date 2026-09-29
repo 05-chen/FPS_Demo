@@ -2,6 +2,8 @@ using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
+namespace UI.Runtime
+{
 /// <summary>
 /// 运行时 UI 工厂。大厅和选阵营共用同一套创建规则，避免两份复制粘贴。
 /// </summary>
@@ -236,4 +238,5 @@ public static class RuntimeUiFactory
 
         return font;
     }
+}
 }

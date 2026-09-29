@@ -1,4 +1,6 @@
 using Steamworks;
+using UI;
+using UI.Runtime;
 using Unity.Netcode;
 using UnityEngine;
 using UnityEngine.SceneManagement;
@@ -14,7 +16,7 @@ public sealed class SteamLobbyUI : MonoBehaviour
 {
     public static SteamLobbyUI Instance { get; private set; }
 
-    [SerializeField] FactionSelectUI offlineFactionUi;
+    [SerializeField] LegacyFactionSelectAdapter offlineFactionUi;
     [SerializeField] GameObject redPlayer;
     [SerializeField] GameObject bluePlayer;
 
@@ -228,10 +230,10 @@ public sealed class SteamLobbyUI : MonoBehaviour
         _awaitingPostMatchAdmission = false;
         UI.MatchEndUI.EnsureInstance().ForceHide();
         Instance.OnStatusChanged("下一局已准备完成，请选择阵营。");
-        UI.FactionSelectUI factionUi = UI.FactionSelectUI.Instance;
+        FactionSelectionPanel factionUi = FactionSelectionPanel.Instance;
         if (factionUi == null)
         {
-            factionUi = FindFirstObjectByType<UI.FactionSelectUI>(FindObjectsInactive.Include);
+            factionUi = FindFirstObjectByType<FactionSelectionPanel>(FindObjectsInactive.Include);
         }
 
         factionUi?.ShowUI(true);
@@ -248,9 +250,9 @@ public sealed class SteamLobbyUI : MonoBehaviour
 
         _awaitingPostMatchAdmission = true;
         UI.MatchEndUI.EnsureInstance().ForceHide();
-        if (UI.FactionSelectUI.Instance != null)
+        if (FactionSelectionPanel.Instance != null)
         {
-            UI.FactionSelectUI.Instance.ShowUI(false);
+            FactionSelectionPanel.Instance.ShowUI(false);
         }
 
         Instance.ShowLobby();
@@ -266,9 +268,9 @@ public sealed class SteamLobbyUI : MonoBehaviour
         }
 
         UI.MatchEndUI.EnsureInstance().ForceHide();
-        if (UI.FactionSelectUI.Instance != null)
+        if (FactionSelectionPanel.Instance != null)
         {
-            UI.FactionSelectUI.Instance.ShowUI(false);
+            FactionSelectionPanel.Instance.ShowUI(false);
         }
 
         Instance.OnStatusChanged("本局已结束。请等待当前结算结束。");
@@ -450,15 +452,15 @@ public sealed class SteamLobbyUI : MonoBehaviour
         Cursor.lockState = CursorLockMode.None;
         Cursor.visible = true;
 
-        UI.FactionSelectUI factionUi = UI.FactionSelectUI.Instance;
+        FactionSelectionPanel factionUi = FactionSelectionPanel.Instance;
         if (factionUi == null)
         {
-            factionUi = FindFirstObjectByType<UI.FactionSelectUI>(FindObjectsInactive.Include);
+            factionUi = FindFirstObjectByType<FactionSelectionPanel>(FindObjectsInactive.Include);
         }
 
         if (factionUi == null)
         {
-            OnStatusChanged("找不到选阵营界面。请在场景 Canvas 上挂 UI.FactionSelectUI。");
+            OnStatusChanged("找不到选阵营界面。请在场景 Canvas 上挂 UI.FactionSelectionPanel。");
             ShowLobby();
             return;
         }
@@ -473,9 +475,9 @@ public sealed class SteamLobbyUI : MonoBehaviour
 
     void HideFactionSelect()
     {
-        if (UI.FactionSelectUI.Instance != null)
+        if (FactionSelectionPanel.Instance != null)
         {
-            UI.FactionSelectUI.Instance.ShowUI(false);
+            FactionSelectionPanel.Instance.ShowUI(false);
         }
 
         if (offlineFactionUi != null)
