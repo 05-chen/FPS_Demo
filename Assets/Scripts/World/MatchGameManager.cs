@@ -1,4 +1,6 @@
 using Core;
+using Match;
+using System;
 using System.Collections;
 using UI;
 using Unity.Netcode;
@@ -9,10 +11,14 @@ namespace World
 {
     /// <summary>
     /// 局内倒计时与胜负结算（服务端权威）。推平：红占 E 或蓝占 A；限时：比占领数。
+    /// 回合阶段写入统一走 <see cref="ServerSetRoundPhase"/>（经 MatchStateMachine 校验）。
     /// </summary>
     public class MatchGameManager : NetworkBehaviour
     {
         public static MatchGameManager Instance { get; private set; }
+
+        /// <summary>阶段变化（含主机）。UI 应订阅此事件，勿猜测当前阶段。</summary>
+        public static event Action<MatchRoundPhase, MatchRoundPhase> RoundPhaseChanged;
 
         public static bool IsMatchOver =>
             Instance != null && Instance.IsSpawned && Instance.MatchEnded.Value;
@@ -72,16 +78,20 @@ namespace World
         Coroutine _matchEndBootstrap;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
-        static void ResetStatics() => Instance = null;
+        static void ResetStatics()
+        {
+            Instance = null;
+            RoundPhaseChanged = null;
+        }
 
         public override void OnNetworkSpawn()
         {
             base.OnNetworkSpawn();
             Instance = this;
+            RoundPhase.OnValueChanged += OnRoundPhaseNetworkChanged;
             if (!IsServer)
             {
                 MatchEnded.OnValueChanged += OnMatchEndedChanged;
-                RoundPhase.OnValueChanged += OnRoundPhaseChanged;
                 _matchEndBootstrap = StartCoroutine(BootstrapMatchEnd());
                 return;
             }
@@ -109,6 +119,12 @@ namespace World
             {
                 _matchEndBootstrap = StartCoroutine(BootstrapMatchEnd());
             }
+        }
+
+        void OnRoundPhaseNetworkChanged(MatchRoundPhase previous, MatchRoundPhase current)
+        {
+            RoundPhaseChanged?.Invoke(previous, current);
+            OnRoundPhaseChanged(previous, current);
         }
 
         void OnRoundPhaseChanged(MatchRoundPhase previous, MatchRoundPhase current)
@@ -198,21 +214,32 @@ namespace World
             GameLog.Info("Match", "主机新开一局，占领进度与倒计时已重置。");
         }
 
-        /// <summary>服务器设置回合阶段（幂等：同阶段重复写入可接受）。</summary>
-        public void ServerSetRoundPhase(MatchRoundPhase phase)
+        /// <summary>
+        /// 服务器设置回合阶段。经 <see cref="MatchStateMachine"/> 校验；非法转换记 Warn 并拒绝。
+        /// </summary>
+        /// <returns>是否已写入（含同阶段幂等视为成功）。</returns>
+        public bool ServerSetRoundPhase(MatchRoundPhase phase)
         {
             if (!IsServer || !IsSpawned)
             {
-                return;
+                return false;
             }
 
-            if (RoundPhase.Value == phase)
+            MatchRoundPhase from = RoundPhase.Value;
+            if (from == phase)
             {
-                return;
+                return true;
+            }
+
+            if (!MatchStateMachine.TryTransition(from, phase, out string rejectReason))
+            {
+                GameLog.Warn("Match", "非法 RoundPhase 转换被拒绝：" + rejectReason);
+                return false;
             }
 
             RoundPhase.Value = phase;
-            GameLog.Info("Match", "RoundPhase -> " + phase);
+            GameLog.Info("Match", "RoundPhase " + from + " -> " + phase);
+            return true;
         }
 
         /// <summary>通知所有客户端清掉顶栏缓存，避免还画着上一局的 SectorManager。</summary>
@@ -236,7 +263,14 @@ namespace World
             MatchTimer.Value = Mathf.Max(1f, matchDurationSeconds);
             WinningTeam.Value = TeamId.None;
             MatchEndedBySweep.Value = false;
-            RoundPhase.Value = MatchRoundPhase.FactionSelection;
+            if (!ServerSetRoundPhase(MatchRoundPhase.FactionSelection))
+            {
+                // 主机强制新开局：若上一阶段无法合法跳到选阵营，仍需进入可选状态。
+                GameLog.Warn("Match", "ServerBeginNewRound 强制写入 FactionSelection（绕过前序阶段："
+                    + RoundPhase.Value + "）");
+                RoundPhase.Value = MatchRoundPhase.FactionSelection;
+            }
+
             GameLog.Info("Match", "对局计时开始 " + MatchTimer.Value.ToString("F0") + " 秒（待选阵营）");
         }
 
@@ -251,7 +285,7 @@ namespace World
             if (RoundPhase.Value == MatchRoundPhase.FactionSelection
                 || RoundPhase.Value == MatchRoundPhase.None)
             {
-                RoundPhase.Value = MatchRoundPhase.Playing;
+                ServerSetRoundPhase(MatchRoundPhase.Playing);
             }
         }
 
@@ -263,7 +297,7 @@ namespace World
             }
 
             MatchEnded.OnValueChanged -= OnMatchEndedChanged;
-            RoundPhase.OnValueChanged -= OnRoundPhaseChanged;
+            RoundPhase.OnValueChanged -= OnRoundPhaseNetworkChanged;
             if (_matchEndBootstrap != null)
             {
                 StopCoroutine(_matchEndBootstrap);
@@ -281,7 +315,7 @@ namespace World
             }
 
             MatchEnded.OnValueChanged -= OnMatchEndedChanged;
-            RoundPhase.OnValueChanged -= OnRoundPhaseChanged;
+            RoundPhase.OnValueChanged -= OnRoundPhaseNetworkChanged;
             if (_matchEndBootstrap != null)
             {
                 StopCoroutine(_matchEndBootstrap);
@@ -369,7 +403,12 @@ namespace World
             MatchTimer.Value = 0f;
             WinningTeam.Value = winner;
             MatchEndedBySweep.Value = isSweep;
-            RoundPhase.Value = MatchRoundPhase.MatchEnded;
+            if (!ServerSetRoundPhase(MatchRoundPhase.MatchEnded))
+            {
+                GameLog.Warn("Match", "Conclude 无法转入 MatchEnded，当前=" + RoundPhase.Value);
+                RoundPhase.Value = MatchRoundPhase.MatchEnded;
+            }
+
             string reason = isSweep ? "推平" : "限时";
             string winnerName = TeamIdUtil.IsPlayable(winner) ? TeamIdUtil.DisplayName(winner) : "平局";
             GameLog.Info("Match", "对局结束 [" + reason + "] 胜者=" + winnerName);

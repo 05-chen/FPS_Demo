@@ -61,6 +61,7 @@ public sealed class SteamLobbyUI : MonoBehaviour
     void OnEnable()
     {
         BindSession();
+        MatchGameManager.RoundPhaseChanged += OnMatchRoundPhaseChanged;
     }
 
     void Start()
@@ -71,6 +72,7 @@ public sealed class SteamLobbyUI : MonoBehaviour
     void OnDisable()
     {
         UnbindSession();
+        MatchGameManager.RoundPhaseChanged -= OnMatchRoundPhaseChanged;
     }
 
     void OnDestroy()
@@ -359,6 +361,19 @@ public sealed class SteamLobbyUI : MonoBehaviour
 
         // MatchEnded / PostMatchWaiting / PreparingNextRound：禁止本地提前开下一局或弹选阵营。
         ShowPostMatchWaitingForParticipant();
+    }
+
+    void OnMatchRoundPhaseChanged(MatchRoundPhase previous, MatchRoundPhase current)
+    {
+        if (!_awaitingPostMatchAdmission)
+        {
+            return;
+        }
+
+        if (current == MatchRoundPhase.FactionSelection || current == MatchRoundPhase.Playing)
+        {
+            ShowPostMatchFactionSelect();
+        }
     }
 
     /// <summary>结算播报显示期间先收起大厅，等玩家点击后再打开。</summary>

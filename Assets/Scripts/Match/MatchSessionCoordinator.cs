@@ -106,7 +106,7 @@ namespace Match
             _host.Notify("玩家 " + clientId + " 选择了" + TeamIdUtil.DisplayName(team) + "。");
 
             bool nextRoundReady = _nextRoundPrepared
-                || MatchRoundPhaseRules.AllowsIndependentFactionSpawn(phase);
+                || MatchRules.AllowsIndependentFactionSpawn(phase);
 
             if (_gameplayStarted || nextRoundReady)
             {
@@ -140,7 +140,7 @@ namespace Match
         public void TryStartMatch()
         {
             NetworkManager network = NetworkManager.Singleton;
-            if (_gameplayStarted || _matchLoadStarted || MatchGameManager.IsPostMatchBlocked
+            if (_gameplayStarted || _matchLoadStarted || !MatchRules.AllowsPlayerSpawn(MatchGameManager.CurrentPhase)
                 || _nextRoundPrepared
                 || network == null || !network.IsServer)
             {

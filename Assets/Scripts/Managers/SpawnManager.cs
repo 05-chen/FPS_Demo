@@ -1,13 +1,16 @@
 using System.Collections.Generic;
 using Core;
+using Match;
 using UI;
 using Unity.Netcode;
 using UnityEngine;
+using World;
 
 namespace Managers
 {
     /// <summary>
     /// 进房后先不生成玩家。选完红/蓝后，才 Instantiate + SpawnAsPlayerObject。
+    /// 只检查比赛阶段与资格，不推进 RoundPhase。
     /// </summary>
     [DefaultExecutionOrder(-20)]
     public class SpawnManager : NetworkBehaviour
@@ -66,10 +69,10 @@ namespace Managers
                 return;
             }
 
-            if (World.MatchGameManager.IsPostMatchBlocked)
+            if (!MatchRules.AllowsFactionSubmit(MatchGameManager.CurrentPhase))
             {
                 GameLog.Warn("Spawn", "结算等待中拒绝阵营提交 clientId="
-                    + rpcParams.Receive.SenderClientId);
+                    + rpcParams.Receive.SenderClientId + " phase=" + MatchGameManager.CurrentPhase);
                 return;
             }
 
@@ -90,10 +93,10 @@ namespace Managers
                 return false;
             }
 
-            if (World.MatchGameManager.IsPostMatchBlocked || World.MatchGameManager.IsMatchOver)
+            if (!MatchRules.AllowsPlayerSpawn(MatchGameManager.CurrentPhase) || MatchGameManager.IsMatchOver)
             {
                 GameLog.Warn("Spawn", "结算/准备下一局期间拒绝为 clientId=" + clientId + " 生成玩家。phase="
-                    + World.MatchGameManager.CurrentPhase);
+                    + MatchGameManager.CurrentPhase);
                 return false;
             }
 
