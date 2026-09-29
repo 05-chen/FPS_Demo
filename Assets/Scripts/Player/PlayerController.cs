@@ -7,18 +7,15 @@ using UI.Runtime;
 using Weapon;
 
 /// <summary>
-/// 1v1 FPS 玩家控制。
-/// 联网后只有 Owner 读输入、开摄像机；阵营由服务器写入NetworkVariable。
+/// 1v1 FPS 玩家控制协调器。
+/// 联网后只有 Owner 读输入、开摄像机；阵营由服务器写入 NetworkVariable。
+/// 移动 / 视角 / 姿态 / 出生 / 动画同步委托子模块，本类保留权限判断与对外 API。
 /// </summary>
 [DisallowMultipleComponent]
 [RequireComponent(typeof(CharacterController))]
 [RequireComponent(typeof(NetworkObject))]
 public sealed class PlayerController : NetworkBehaviour
 {
-    static readonly int ColorPropertyId = Shader.PropertyToID("_Color");
-    static readonly Color RedColor = new Color(0.85f, 0.15f, 0.15f);
-    static readonly Color BlueColor = new Color(0.15f, 0.35f, 0.9f);
-
     [Header("视角组件（拖 PlayerCamera 上的组件）")]
     [SerializeField] Camera playerCamera;
     [SerializeField] AudioListener audioListener;
@@ -32,8 +29,6 @@ public sealed class PlayerController : NetworkBehaviour
     [SerializeField] float gravity = -20f;
 
     [Header("姿态")]
-    // 必须与 CharacterController 的高度、以及 ModelRoot 的 -0.8 偏移保持一致（1.6）。
-    // 写成 2 会把胶囊撑到 2m：底部落到 -1，而模型脚底固定在 -0.8，导致模型悬空 0.2m、摄像机扎进头部网格。
     [SerializeField] float standingHeight = 1.6f;
     [SerializeField] float crouchingHeight = 1f;
     [SerializeField] float standingCameraHeight = 1.6f;
@@ -77,8 +72,8 @@ public sealed class PlayerController : NetworkBehaviour
     /// </summary>
     public bool IsControlled { get; private set; }
 
-    public bool IsCrouching { get; private set; }
-    public bool IsSprinting { get; private set; }
+    public bool IsCrouching => _stance != null && _stance.IsCrouching;
+    public bool IsSprinting => _stance != null && _stance.IsSprinting;
 
     /// <summary>本帧本地平面移动输入（X=左右，Y=前后），供动画混合树读取。</summary>
     public Vector2 MoveInput => _moveInput;
@@ -96,14 +91,8 @@ public sealed class PlayerController : NetworkBehaviour
     public bool CameraPositionControlledExternally { get; set; }
 
     /// <summary>站姿对应的摄像机离脚底高度，供跟随脚本换算下蹲 / 趴下的高度补偿。</summary>
-    public float DesiredCameraHeightFromFeet
-    {
-        get
-        {
-            ResolveStanceTargets(out _, out float cameraFromFeet);
-            return cameraFromFeet;
-        }
-    }
+    public float DesiredCameraHeightFromFeet =>
+        _stance != null ? _stance.DesiredCameraHeightFromFeet(CurrentInjury) : standingCameraHeight;
 
     /// <summary>站姿基准摄像机高度，用于计算相对站立的姿态偏移量。</summary>
     public float StandingCameraHeight => standingCameraHeight;
@@ -116,7 +105,6 @@ public sealed class PlayerController : NetworkBehaviour
         NetworkVariableReadPermission.Everyone,
         NetworkVariableWritePermission.Server);
 
-    /// <summary>Owner 写入，供远端驱动 Animator（移动混合树）。</summary>
     readonly NetworkVariable<Vector2> _syncedAnimMove = new NetworkVariable<Vector2>(
         Vector2.zero,
         NetworkVariableReadPermission.Everyone,
@@ -157,26 +145,21 @@ public sealed class PlayerController : NetworkBehaviour
     public NetworkVariable<byte> JumpAnimSeq => _syncedJumpSeq;
     public NetworkVariable<byte> ReloadAnimSeq => _syncedReloadSeq;
 
-    MaterialPropertyBlock _propertyBlock;
-
     CharacterController _characterController;
     CharacterMotor _motor;
     FirstPersonLook _look;
+    PlayerStanceController _stance;
+    PlayerSpawnState _spawn;
+    PlayerTeamVisual _teamVisual;
+    PlayerAnimationSync _animSync;
     NetworkTransform _networkTransform;
     ClientNetworkTransform _clientNetworkTransform;
-    Renderer _meshRenderer;
     PlayerStatusController _statusController;
     PlayerHealth _playerHealth;
     bool _deadPresentation;
     bool _waitingForTeamAck;
-    bool _sprintLatched;
-    bool _wasMoving;
     Vector2 _moveInput;
     bool _jumpPressedThisFrame;
-    /// <summary>最近一次由 SpawnManager / 选边 RPC 写入的出生位姿；虚空回收优先用它。</summary>
-    Vector3 _lastSpawnPosition;
-    Quaternion _lastSpawnRotation = Quaternion.identity;
-    bool _hasLastSpawnPose;
 
     public static PlayerController FindLocalOwnedPlayer()
     {
@@ -185,12 +168,11 @@ public sealed class PlayerController : NetworkBehaviour
 
     void Awake()
     {
-        _propertyBlock = new MaterialPropertyBlock();
         SetupPhysics();
         CacheViewComponents();
         _networkTransform = GetComponent<NetworkTransform>();
         _clientNetworkTransform = GetComponent<ClientNetworkTransform>();
-        _meshRenderer = GetComponent<Renderer>();
+        Renderer meshRenderer = GetComponent<Renderer>();
         _statusController = GetComponent<PlayerStatusController>();
         _playerHealth = GetComponent<PlayerHealth>();
         if (playerWeapon == null)
@@ -209,8 +191,48 @@ public sealed class PlayerController : NetworkBehaviour
 
         _motor = new CharacterMotor(_characterController);
         _look = new FirstPersonLook(transform, playerCamera != null ? playerCamera.transform : null);
-        DetectTeamByName();
-        ApplyTeamColor();
+        _stance = new PlayerStanceController(
+            _characterController,
+            playerCamera,
+            new PlayerStanceController.Settings
+            {
+                StandingHeight = standingHeight,
+                CrouchingHeight = crouchingHeight,
+                ProneHeight = proneHeight,
+                StandingCameraHeight = standingCameraHeight,
+                CrouchingCameraHeight = crouchingCameraHeight,
+                ProneCameraHeight = proneCameraHeight,
+                StanceChangeSpeed = stanceChangeSpeed
+            });
+        _spawn = new PlayerSpawnState(
+            transform,
+            _characterController,
+            _motor,
+            _networkTransform,
+            _clientNetworkTransform,
+            voidY,
+            groundProbeUp,
+            groundProbeDown,
+            redSpawnPosition,
+            blueSpawnPosition);
+        _teamVisual = new PlayerTeamVisual(meshRenderer);
+        _animSync = new PlayerAnimationSync(
+            _syncedAnimMove,
+            _syncedAnimGrounded,
+            _syncedAnimAds,
+            _syncedFireSeq,
+            _syncedJumpSeq,
+            _syncedReloadSeq);
+
+        _stance.ApplyCapsuleHeight(standingHeight);
+
+        TeamId detected = PlayerTeamVisual.DetectTeamByName(name);
+        if (detected != TeamId.None)
+        {
+            Team = detected;
+        }
+
+        _teamVisual.ApplyTeamColor(Team);
         SetViewEnabled(false);
     }
 
@@ -231,18 +253,15 @@ public sealed class PlayerController : NetworkBehaviour
         _syncedTeam.OnValueChanged += OnSyncedTeamChanged;
         ApplyTeamFromNet(_syncedTeam.Value);
 
-        bool isLocalPlayer = IsOwner;
         if (_characterController != null)
         {
-            // 战区只认 CharacterController。客户端在主机上 IsOwner=false，若关掉胶囊，蓝方进圈永远不计人数。
             _characterController.enabled = ShouldEnableCharacterController();
         }
 
-        if (isLocalPlayer)
+        if (IsOwner)
         {
             GameplayGate.Changed += OnGameplayGateChanged;
             SetViewEnabled(!GameplayGate.SuppressPlayerView);
-            // OnNetworkSpawn 当下 NetworkTransform 可能还没进入可提交状态，延后一帧贴地
             StartCoroutine(SnapToGroundWhenReady());
         }
         else
@@ -253,14 +272,13 @@ public sealed class PlayerController : NetworkBehaviour
 
     System.Collections.IEnumerator SnapToGroundWhenReady()
     {
-        // 等 NetworkTransform 权威侧就绪，避免 Teleport 抛异常
         yield return null;
-        if (!IsSpawned || !IsOwner || GameplayGate.IsBlocked)
+        if (!IsSpawned || !IsOwner || GameplayGate.IsBlocked || _spawn == null)
         {
             yield break;
         }
 
-        TeleportCharacter(SnapToGround(transform.position));
+        _spawn.TeleportCharacter(_spawn.SnapToGround(transform.position), IsSpawned);
     }
 
     public override void OnNetworkDespawn()
@@ -330,35 +348,17 @@ public sealed class PlayerController : NetworkBehaviour
         }
 
         _waitingForTeamAck = false;
-        // 出生点由 SpawnManager 区域 + NotifyPlayerSpawnedClientRpc 决定。
-        // 禁止在此调用 MoveToSpawnPoint：预制体里的 red/blueSpawnPosition 是旧练习坐标，
-        // 会在阵营 NV 晚于出生 RPC 到达时把双方都拽回红方一侧。
         TeamConfirmed?.Invoke(Team);
     }
 
     void ApplyTeamFromNet(int teamValue)
     {
         SetTeam(TeamIdUtil.FromNetwork(teamValue));
-        gameObject.name = Team == TeamId.Red ? "Player_Red" : Team == TeamId.Blue ? "Player_Blue" : "Player";
-    }
-
-    /// <summary>
-    /// 仅用于无 SpawnManager 的兜底（旧练习点）。正式对局请走 SpawnManager 区域。
-    /// </summary>
-    void MoveToSpawnPoint()
-    {
-        if (!TryResolveTeamSpawnPose(Team, out Vector3 spawn, out Quaternion rotation))
-        {
-            spawn = Team == TeamId.Blue ? blueSpawnPosition : redSpawnPosition;
-            rotation = transform.rotation;
-        }
-
-        TeleportToSpawn(spawn, rotation);
+        gameObject.name = PlayerTeamVisual.DisplayObjectName(Team);
     }
 
     void Update()
     {
-        // 默认清零：任何提前 return 的分支都会让动画回到 Idle，避免卡在上一帧输入。
         _moveInput = Vector2.zero;
         _jumpPressedThisFrame = false;
 
@@ -381,7 +381,7 @@ public sealed class PlayerController : NetworkBehaviour
                 ResetWeaponAdsToHipfire();
                 if (!GameplayGate.SuppressPlayerView)
                 {
-                    TickStance(Time.deltaTime);
+                    _stance?.TickCapsule(Time.deltaTime, CurrentInjury);
                     TickVerticalOnly();
                     RecoverIfInVoid();
                 }
@@ -394,16 +394,16 @@ public sealed class PlayerController : NetworkBehaviour
             ResetWeaponAdsToHipfire();
             if (PauseGate.IsPaused)
             {
-                TickStance(Time.deltaTime);
+                _stance?.TickCapsule(Time.deltaTime, CurrentInjury);
                 TickVerticalOnly();
             }
 
             return;
         }
 
-        GameplayInputState input = GameplayInputState.Read();
-        UpdateStanceState(input);
-        TickStance(Time.deltaTime);
+        GameplayInputState input = PlayerInputReader.Read();
+        _stance?.UpdateFromInput(input, CurrentInjury);
+        _stance?.TickCapsule(Time.deltaTime, CurrentInjury);
 
         bool lockMove = IsDownedInjury();
         if (!lockMove)
@@ -418,13 +418,10 @@ public sealed class PlayerController : NetworkBehaviour
                 cameraRecoil);
         }
 
-        // 先更新相机，再计算 ADS 枪械姿态，避免瞄准点使用上一帧的视角。
         TickWeaponAds();
 
         Vector2 move = lockMove ? Vector2.zero : input.Move;
         bool jumpPressed = !lockMove && input.JumpPressed;
-        // 缓存给 PlayerAnimationManager，不改变 Motor 原有调用方式。
-        // Jump 触发器必须复用 Motor 的起跳条件（着地瞬间），否则空中连按会反复重播起跳动画。
         _moveInput = move;
         _jumpPressedThisFrame = jumpPressed && IsGrounded;
         _motor.Tick(move, jumpPressed, ResolveMoveSpeed(), jumpHeight, gravity, Time.deltaTime);
@@ -476,37 +473,6 @@ public sealed class PlayerController : NetworkBehaviour
         _motor.Tick(Vector2.zero, false, ResolveMoveSpeed(), jumpHeight, gravity, Time.deltaTime);
     }
 
-    void UpdateStanceState(in GameplayInputState input)
-    {
-        if (IsDownedInjury())
-        {
-            _sprintLatched = false;
-            _wasMoving = false;
-            IsCrouching = false;
-            IsSprinting = false;
-            return;
-        }
-
-        IsCrouching = input.CrouchHeld || IsCrippledInjury();
-
-        if (IsCrouching)
-        {
-            _sprintLatched = false;
-        }
-        else if (input.SprintPressed)
-        {
-            _sprintLatched = true;
-        }
-
-        if (_wasMoving && !input.HasMoveInput)
-        {
-            _sprintLatched = false;
-        }
-
-        _wasMoving = input.HasMoveInput;
-        IsSprinting = _sprintLatched && !IsCrouching && input.HasMoveInput;
-    }
-
     InjuryState CurrentInjury =>
         StatusController != null ? StatusController.currentInjury : InjuryState.None;
 
@@ -521,11 +487,6 @@ public sealed class PlayerController : NetworkBehaviour
 
             return _statusController;
         }
-    }
-
-    bool IsCrippledInjury()
-    {
-        return CurrentInjury == InjuryState.Crippled_Legs;
     }
 
     bool IsDownedInjury()
@@ -554,116 +515,16 @@ public sealed class PlayerController : NetworkBehaviour
         return speed;
     }
 
-    void TickStance(float deltaTime)
-    {
-        if (_characterController == null)
-        {
-            return;
-        }
-
-        float t = stanceChangeSpeed * deltaTime;
-        ResolveStanceTargets(out float targetHeight, out _);
-        ApplyCapsuleHeight(Mathf.Lerp(_characterController.height, targetHeight, t));
-    }
-
     void LateUpdate()
     {
-        SyncCameraHeight(Time.deltaTime);
-    }
-
-    /// <summary>
-    /// 摄像机高度只在 LateUpdate 同步：此时 Update 里的 CharacterController.Move 已经执行完，
-    /// 视角严格跟随胶囊体当帧的最终位置，不会出现「胶囊已移动、摄像机还在上一帧」的错位。
-    /// 摄像机保持挂在 Player 根节点下作为子物体（不是 Head 骨骼的子物体），
-    /// 只同步高度、不参与骨骼旋转，因此不会与头骨骼的动画轴向打架。
-    ///
-    /// 若 PlayerAnimationManager 正在做 Head 位置跟随，位置改由它统一接管，这里直接让位，避免两边互相覆盖。
-    /// </summary>
-    void SyncCameraHeight(float deltaTime)
-    {
-        if (playerCamera == null || CameraPositionControlledExternally)
-        {
-            return;
-        }
-
-        ResolveStanceTargets(out _, out float cameraFromFeet);
-        Vector3 localPos = playerCamera.transform.localPosition;
-        localPos.y = Mathf.Lerp(localPos.y, cameraFromFeet - standingHeight * 0.5f, stanceChangeSpeed * deltaTime);
-        playerCamera.transform.localPosition = localPos;
-    }
-
-    void ResolveStanceTargets(out float targetHeight, out float cameraFromFeet)
-    {
-        if (IsDownedInjury())
-        {
-            targetHeight = proneHeight;
-            cameraFromFeet = proneCameraHeight;
-            return;
-        }
-
-        if (IsCrouching || IsCrippledInjury())
-        {
-            targetHeight = crouchingHeight;
-            cameraFromFeet = crouchingCameraHeight;
-            return;
-        }
-
-        targetHeight = standingHeight;
-        cameraFromFeet = standingCameraHeight;
-    }
-
-    /// <summary>
-    /// Transform 在胶囊中心，不是脚底。高度变化时只改 center，让底部始终停在 -standingHeight/2。
-    /// 若写成 center.y = height/2，碰撞体会整体上移半个身高。
-    /// </summary>
-    void ApplyCapsuleHeight(float height)
-    {
-        const float defaultRadius = 0.5f;
-        const float defaultStepOffset = 0.3f;
-
-        _characterController.height = height;
-        _characterController.radius = Mathf.Min(defaultRadius, height * 0.5f);
-        _characterController.center = new Vector3(0f, (height - standingHeight) * 0.5f, 0f);
-        _characterController.stepOffset = Mathf.Min(defaultStepOffset, height * 0.5f);
+        _stance?.SyncCameraHeight(Time.deltaTime, CurrentInjury, CameraPositionControlledExternally);
     }
 
     public void TeleportToSpawn(Vector3 position, Quaternion rotation)
     {
-        Vector3 grounded = SnapToGround(position);
-        _lastSpawnPosition = grounded;
-        _lastSpawnRotation = rotation;
-        _hasLastSpawnPose = true;
-
-        bool wasEnabled = _characterController != null && _characterController.enabled;
-        if (_characterController != null)
-        {
-            _characterController.enabled = false;
-        }
-
-        if (_clientNetworkTransform != null)
-        {
-            _clientNetworkTransform.TeleportToSpawn(grounded, rotation);
-        }
-        else
-        {
-            transform.SetPositionAndRotation(grounded, rotation);
-            if (_networkTransform != null && IsSpawned && _networkTransform.CanCommitToTransform)
-            {
-                _networkTransform.Teleport(grounded, rotation, transform.localScale);
-            }
-        }
-
-        _motor?.ResetVertical();
-        if (_characterController != null)
-        {
-            _characterController.enabled = wasEnabled;
-        }
+        _spawn?.TeleportToSpawn(position, rotation, IsSpawned);
     }
 
-    /// <summary>
-    /// Owner 用胶囊走路；Server 上也要开着所有人的胶囊，占领圈才能数到远端玩家。
-    /// 纯客户端上的远端玩家关掉，避免本地物理乱推。
-    /// </summary>
     bool ShouldEnableCharacterController()
     {
         if (_deadPresentation || (_playerHealth != null && _playerHealth.IsDead))
@@ -710,88 +571,29 @@ public sealed class PlayerController : NetworkBehaviour
         {
             ResetWeaponAdsToHipfire();
         }
-        else if (_meshRenderer != null)
+        else
         {
-            ApplyTeamColor();
+            _teamVisual?.ApplyTeamColor(Team);
         }
     }
 
     void RecoverIfInVoid()
     {
-        if (_deadPresentation || (_playerHealth != null && _playerHealth.IsDead))
-        {
-            return;
-        }
-
-        if (transform.position.y > voidY)
+        bool isDead = _deadPresentation || (_playerHealth != null && _playerHealth.IsDead);
+        if (_spawn == null || !_spawn.ShouldRecoverFromVoid(isDead))
         {
             return;
         }
 
         GameLog.Warn("Player", "检测到掉入虚空，拉回出生点。");
-        if (!TryResolveTeamSpawnPose(ResolveTeam(), out Vector3 spawn, out Quaternion rotation))
-        {
-            spawn = _hasLastSpawnPose
-                ? _lastSpawnPosition
-                : (Team == TeamId.Blue ? blueSpawnPosition : redSpawnPosition);
-            rotation = _hasLastSpawnPose ? _lastSpawnRotation : transform.rotation;
-        }
-
+        _spawn.ResolveVoidRecoveryPose(Team, ResolveTeam(), out Vector3 spawn, out Quaternion rotation);
         TeleportToSpawn(spawn, rotation);
-    }
-
-    void TeleportCharacter(Vector3 position)
-    {
-        bool wasEnabled = _characterController != null && _characterController.enabled;
-        if (_characterController != null)
-        {
-            _characterController.enabled = false;
-        }
-
-        transform.position = position;
-        _motor?.ResetVertical();
-
-        if (_characterController != null)
-        {
-            _characterController.enabled = wasEnabled;
-        }
-
-        // ClientNetworkTransform 是拥有者权威：只能在可提交的一侧调用 Teleport
-        if (_networkTransform == null || !IsSpawned || !_networkTransform.CanCommitToTransform)
-        {
-            return;
-        }
-
-        _networkTransform.Teleport(position, transform.rotation, transform.localScale);
-    }
-
-    Vector3 SnapToGround(Vector3 position)
-    {
-        Vector3 origin = position + Vector3.up * groundProbeUp;
-        float distance = groundProbeUp + groundProbeDown;
-        int mask = ~(1 << gameObject.layer);
-
-        if (!Physics.Raycast(origin, Vector3.down, out RaycastHit hit, distance, mask, QueryTriggerInteraction.Ignore))
-        {
-            return position;
-        }
-
-        float extra = 1f;
-        if (_characterController != null)
-        {
-            float scaleY = transform.lossyScale.y;
-            float bottomOffset =
-                (_characterController.center.y - _characterController.height * 0.5f) * scaleY;
-            extra = -bottomOffset + _characterController.skinWidth * scaleY;
-        }
-
-        return new Vector3(position.x, hit.point.y + extra, position.z);
     }
 
     public void SetTeam(TeamId team)
     {
         Team = team;
-        ApplyTeamColor();
+        _teamVisual?.ApplyTeamColor(team);
     }
 
     /// <summary>
@@ -832,41 +634,21 @@ public sealed class PlayerController : NetworkBehaviour
     public void TeleportToTeamSpawn(TeamId team)
     {
         TeamId resolved = TeamIdUtil.IsPlayable(team) ? team : ResolveTeam();
-        if (!TryResolveTeamSpawnPose(resolved, out Vector3 spawn, out Quaternion rotation))
+        if (_spawn == null
+            || !_spawn.TryResolveTeamSpawnPose(resolved, ResolveTeam(), out Vector3 spawn, out Quaternion rotation))
         {
-            spawn = resolved == TeamId.Blue ? blueSpawnPosition : redSpawnPosition;
-            rotation = transform.rotation;
+            if (_spawn != null)
+            {
+                _spawn.GetPrefabFallbackSpawn(resolved, out spawn, out rotation);
+            }
+            else
+            {
+                spawn = resolved == TeamId.Blue ? blueSpawnPosition : redSpawnPosition;
+                rotation = transform.rotation;
+            }
         }
 
         TeleportToSpawn(spawn, rotation);
-    }
-
-    /// <summary>
-    /// 优先向场景 SpawnManager 要阵营区域点；没有区域时再退回缓存 / 预制体旧坐标。
-    /// </summary>
-    bool TryResolveTeamSpawnPose(TeamId team, out Vector3 position, out Quaternion rotation)
-    {
-        position = default;
-        rotation = Quaternion.identity;
-        if (!TeamIdUtil.IsPlayable(team))
-        {
-            return false;
-        }
-
-        if (Managers.SpawnManager.Instance != null &&
-            Managers.SpawnManager.Instance.TryGetSpawnPose(team, out position, out rotation))
-        {
-            return true;
-        }
-
-        if (_hasLastSpawnPose && ResolveTeam() == team)
-        {
-            position = _lastSpawnPosition;
-            rotation = _lastSpawnRotation;
-            return true;
-        }
-
-        return false;
     }
 
     public void SetControlled(bool controlled)
@@ -894,55 +676,22 @@ public sealed class PlayerController : NetworkBehaviour
     /// <summary>Owner 每帧把动画相关状态写入 NetworkVariable，远端据此播动作。</summary>
     public void PublishAnimationState(Vector2 move, bool grounded, bool isAds)
     {
-        if (!IsSpawned || !IsOwner)
-        {
-            return;
-        }
-
-        if (_syncedAnimMove.Value != move)
-        {
-            _syncedAnimMove.Value = move;
-        }
-
-        if (_syncedAnimGrounded.Value != grounded)
-        {
-            _syncedAnimGrounded.Value = grounded;
-        }
-
-        if (_syncedAnimAds.Value != isAds)
-        {
-            _syncedAnimAds.Value = isAds;
-        }
+        _animSync?.PublishState(IsSpawned, IsOwner, move, grounded, isAds);
     }
 
     public void PublishFireAnimation()
     {
-        if (!IsSpawned || !IsOwner)
-        {
-            return;
-        }
-
-        _syncedFireSeq.Value++;
+        _animSync?.PublishFire(IsSpawned, IsOwner);
     }
 
     public void PublishJumpAnimation()
     {
-        if (!IsSpawned || !IsOwner)
-        {
-            return;
-        }
-
-        _syncedJumpSeq.Value++;
+        _animSync?.PublishJump(IsSpawned, IsOwner);
     }
 
     public void PublishReloadAnimation()
     {
-        if (!IsSpawned || !IsOwner)
-        {
-            return;
-        }
-
-        _syncedReloadSeq.Value++;
+        _animSync?.PublishReload(IsSpawned, IsOwner);
     }
 
     void OnGameplayGateChanged(bool blocked)
@@ -974,7 +723,9 @@ public sealed class PlayerController : NetworkBehaviour
         }
 
         _characterController.radius = 0.5f;
-        ApplyCapsuleHeight(standingHeight);
+        // 临时高度；Awake 后 _stance.ApplyCapsuleHeight 会再设一次
+        _characterController.height = standingHeight;
+        _characterController.center = Vector3.zero;
         _characterController.slopeLimit = 45f;
         _characterController.stepOffset = 0.3f;
     }
@@ -1056,31 +807,6 @@ public sealed class PlayerController : NetworkBehaviour
         }
 
         RuntimeUiFactory.SetExclusiveAudioListener(audioListener);
-    }
-
-    void DetectTeamByName()
-    {
-        if (name.Equals("RED", System.StringComparison.OrdinalIgnoreCase))
-        {
-            Team = TeamId.Red;
-        }
-        else if (name.Equals("BLUE", System.StringComparison.OrdinalIgnoreCase))
-        {
-            Team = TeamId.Blue;
-        }
-    }
-
-    void ApplyTeamColor()
-    {
-        if (_meshRenderer == null || _propertyBlock == null)
-        {
-            return;
-        }
-
-        Color color = Team == TeamId.Red ? RedColor : Team == TeamId.Blue ? BlueColor : _meshRenderer.sharedMaterial != null ? _meshRenderer.sharedMaterial.color : Color.white;
-        _meshRenderer.GetPropertyBlock(_propertyBlock);
-        _propertyBlock.SetColor(ColorPropertyId, color);
-        _meshRenderer.SetPropertyBlock(_propertyBlock);
     }
 
     void HandleCursor(in GameplayInputState input)
