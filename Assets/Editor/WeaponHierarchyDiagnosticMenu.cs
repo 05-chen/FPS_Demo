@@ -8,7 +8,7 @@ using Weapon;
 /// </summary>
 public static class WeaponHierarchyDiagnosticMenu
 {
-    const string MenuPath = "Tools/Diagnose Player Weapon Hierarchy";
+    const string MenuPath = "Tools/FPS/Diagnose/Player Weapon Hierarchy";
     const string LogCategory = "WeaponHierarchyDiag";
 
     [MenuItem(MenuPath)]

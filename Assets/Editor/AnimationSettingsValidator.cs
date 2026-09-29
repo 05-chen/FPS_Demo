@@ -9,14 +9,14 @@ using UnityEngine;
 /// <summary>
 /// 菜单工具：批量校验并修复角色动画 FBX 的 ModelImporter 配置（Rig / Bake Into Pose / Loop Time）。
 /// 只处理目标动画清单里的 11 个文件，避免误伤模型或其它 FBX。
-/// 用法：菜单 <b>Tools/Validate and Fix Animation Settings</b>。
+/// 用法：菜单 <b>Tools/FPS/Build/Fix Animation Settings</b>。
 ///
 /// 扫描范围：Project 中若选中了文件夹则只扫这些目录，否则扫整个 Assets。
 /// 只按 .fbx 后缀取资源，.meta 天然不在扫描结果里。
 /// </summary>
 public static class AnimationSettingsValidator
 {
-    const string MenuPath = "Tools/Validate and Fix Animation Settings";
+    const string MenuPath = "Tools/FPS/Build/Fix Animation Settings";
     const string LogCategory = "AnimSettings";
     const string FbxExtension = ".fbx";
 

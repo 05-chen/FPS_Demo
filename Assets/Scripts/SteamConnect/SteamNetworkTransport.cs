@@ -17,7 +17,6 @@ public sealed class SteamNetworkTransport : NetworkTransport
 {
     public const ulong SteamServerClientId = 0;
     const int MessageBufferSize = 32;
-    const int MaxClients = MatchCapacity.MaxRemoteClients;
     const string LogCategory = "SteamTransport";
 
     public override ulong ServerClientId => SteamServerClientId;
@@ -305,7 +304,7 @@ public sealed class SteamNetworkTransport : NetworkTransport
             return;
         }
 
-        if (_clientConnections.Count >= MaxClients)
+        if (_clientConnections.Count >= MatchCapacity.MaxRemoteClients)
         {
             SteamNetworkingSockets.CloseConnection(connection, 0, "Lobby full", false);
             GameLog.Warn(LogCategory, "拒绝多余连接：房间已满（最多 " + MatchCapacity.MaxPlayers + " 人 ）。");

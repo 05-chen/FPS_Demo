@@ -12,12 +12,12 @@ using static PlayerHierarchyUtils;
 /// <summary>
 /// 菜单工具：在**当前打开的场景**里直接拼装一套完整的联机 Player（根节点 + 模型 + 骨骼 Hitbox + 相机）。
 /// 只作用于 Hierarchy，不会生成或覆盖磁盘上的 Prefab 资产。
-/// 用法：菜单 <b>Tools/Build Player in Hierarchy</b>。
+/// 用法：菜单 <b>Tools/FPS/Build/Player Hierarchy</b>。
 /// 公共装配逻辑（查找 / 建节点 / 写引用）在 <see cref="PlayerHierarchyUtils"/>。
 /// </summary>
 public static class BuildPlayerHierarchy
 {
-    const string MenuPath = "Tools/Build Player in Hierarchy";
+    const string MenuPath = "Tools/FPS/Build/Player Hierarchy";
     const string RootName = "Player";
     const string ModelRootName = "ModelRoot";
     const string ModelFolder = "Assets/Model/Soldier";

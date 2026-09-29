@@ -10,11 +10,11 @@ using Weapon;
 /// <summary>
 /// 菜单工具：一键把 PlayerAnimatorController 与主角色 Avatar 绑到 Player 模型子节点的 Animator 上，
 /// 并确保根节点挂有 PlayerAnimationManager。
-/// 用法：选中 Player（或留空让工具自己找）→ 菜单 <b>Tools/Auto Bind Player Animator</b>。
+/// 用法：选中 Player（或留空让工具自己找）→ 菜单 <b>Tools/FPS/Build/Auto Bind Player Animator</b>。
 /// </summary>
 public static class PlayerAnimatorBinder
 {
-    const string MenuPath = "Tools/Auto Bind Player Animator";
+    const string MenuPath = "Tools/FPS/Build/Auto Bind Player Animator";
     const string LogCategory = "AnimBinder";
     const string ControllerFileName = "PlayerAnimatorController.controller";
     const string ModelFolder = "Assets/Model/Soldier";

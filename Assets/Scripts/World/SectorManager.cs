@@ -300,7 +300,10 @@ namespace World
             }
 
             SectorData data = strongPointArea != null ? strongPointArea.sectorData : null;
-            float duration = Mathf.Max(1f, data != null ? data.captureDuration : 15f);
+            float fallbackDuration = Config.GameConfigCatalog.Match != null
+                ? Config.GameConfigCatalog.Match.DefaultCaptureDurationSeconds
+                : 15f;
+            float duration = Mathf.Max(1f, data != null ? data.captureDuration : fallbackDuration);
             float decay = data != null ? Mathf.Max(0f, data.emptyDecayPerSecond) : 0f;
             float current = SectorCaptureRules.ApplyCaptureTick(
                 CaptureProgress.Value,

@@ -9,13 +9,13 @@ using UnityEngine;
 /// <summary>
 /// 菜单工具：补全 / 修正 PlayerAnimatorController 中 ADS 与 Fire 的互通连线。
 /// 机瞄时左键能进 Fire，开火结束后若仍按住右键则回到 ADS，而不是掉回腰射 Empty。
-/// 用法：菜单 <b>Tools/Fix ADS Fire Transitions</b>。
+/// 用法：菜单 <b>Tools/FPS/Build/Fix ADS Fire Transitions</b>。
 ///
 /// 注意：AnimatorControllerLayer 是 struct，项目未开 nullable，不能用 Layer? / .Value。
 /// </summary>
 public static class AnimatorAdsFireFixer
 {
-    const string MenuPath = "Tools/Fix ADS Fire Transitions";
+    const string MenuPath = "Tools/FPS/Build/Fix ADS Fire Transitions";
     const string LogCategory = "AnimBuilder";
     const string ControllerPath = "Assets/Animations/PlayerAnimatorController.controller";
     const string UpperBodyLayerName = "UpperBody";

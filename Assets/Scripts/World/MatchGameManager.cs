@@ -1,3 +1,4 @@
+using Config;
 using Core;
 using Match;
 using System;
@@ -47,7 +48,10 @@ namespace World
             && MatchTimer.Value > 0f
             && SectorManager.AnySideHoldsPoint();
 
-        [Header("倒计时")]
+        [Header("配置（可空，空则用 Resources/Configs/MatchConfig）")]
+        [SerializeField] MatchConfig matchConfigOverride;
+
+        [Header("倒计时（无配置时的 Inspector 兜底）")]
         [SerializeField] float matchDurationSeconds = 900f;
 
         public readonly NetworkVariable<float> MatchTimer = new NetworkVariable<float>(
@@ -258,7 +262,7 @@ namespace World
             }
 
             MatchEnded.Value = false;
-            MatchTimer.Value = Mathf.Max(1f, matchDurationSeconds);
+            MatchTimer.Value = ResolveMatchDurationSeconds();
             WinningTeam.Value = TeamId.None;
             MatchEndedBySweep.Value = false;
             if (!ServerSetRoundPhase(MatchRoundPhase.FactionSelection))
@@ -270,6 +274,21 @@ namespace World
             }
 
             GameLog.Info("Match", "对局计时开始 " + MatchTimer.Value.ToString("F0") + " 秒（待选阵营）");
+        }
+
+        float ResolveMatchDurationSeconds()
+        {
+            if (matchConfigOverride != null)
+            {
+                return matchConfigOverride.MatchDurationSeconds;
+            }
+
+            if (GameConfigCatalog.Match != null)
+            {
+                return GameConfigCatalog.Match.MatchDurationSeconds;
+            }
+
+            return Mathf.Max(1f, matchDurationSeconds);
         }
 
         /// <summary>至少一名玩家已生成后进入 Playing。</summary>

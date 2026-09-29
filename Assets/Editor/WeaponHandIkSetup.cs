@@ -11,7 +11,7 @@ using static PlayerHierarchyUtils;
 /// </summary>
 public static class WeaponHandIkSetup
 {
-    const string MenuPath = "Tools/Setup Weapon Hand IK";
+    const string MenuPath = "Tools/FPS/Build/Setup Weapon Hand IK";
     const string LogCategory = "WeaponHandIK";
 
     public const string LeftHandIkName = "LeftHandIK";

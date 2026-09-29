@@ -1,6 +1,7 @@
 using Unity.Netcode;
 using Unity.Netcode.Components;
 using UnityEngine;
+using Config;
 using Core;
 using Player;
 using UI.Runtime;
@@ -191,6 +192,14 @@ public sealed class PlayerController : NetworkBehaviour
 
         _motor = new CharacterMotor(_characterController);
         _look = new FirstPersonLook(transform, playerCamera != null ? playerCamera.transform : null);
+
+        TeamSpawnConfig spawnConfig = GameConfigCatalog.TeamSpawn;
+        Vector3 redSpawn = spawnConfig != null ? spawnConfig.RedSpawnPosition : redSpawnPosition;
+        Vector3 blueSpawn = spawnConfig != null ? spawnConfig.BlueSpawnPosition : blueSpawnPosition;
+        float resolvedVoidY = spawnConfig != null ? spawnConfig.VoidY : voidY;
+        float resolvedProbeUp = spawnConfig != null ? spawnConfig.GroundProbeUp : groundProbeUp;
+        float resolvedProbeDown = spawnConfig != null ? spawnConfig.GroundProbeDown : groundProbeDown;
+
         _stance = new PlayerStanceController(
             _characterController,
             playerCamera,
@@ -210,11 +219,11 @@ public sealed class PlayerController : NetworkBehaviour
             _motor,
             _networkTransform,
             _clientNetworkTransform,
-            voidY,
-            groundProbeUp,
-            groundProbeDown,
-            redSpawnPosition,
-            blueSpawnPosition);
+            resolvedVoidY,
+            resolvedProbeUp,
+            resolvedProbeDown,
+            redSpawn,
+            blueSpawn);
         _teamVisual = new PlayerTeamVisual(meshRenderer);
         _animSync = new PlayerAnimationSync(
             _syncedAnimMove,

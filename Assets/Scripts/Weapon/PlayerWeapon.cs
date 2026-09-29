@@ -1,4 +1,5 @@
 using System;
+using Config;
 using Unity.Netcode;
 using UnityEngine;
 using Enemy;
@@ -14,6 +15,9 @@ public class PlayerWeapon : NetworkBehaviour
 {
     [Header("Weapon Modes")]
     [SerializeField] private WeaponType currentType = WeaponType.Hitscan;
+
+    [Header("配置（可空，空则用 Resources/Configs/WeaponConfig 覆盖默认）")]
+    [SerializeField] WeaponConfig weaponConfigOverride;
 
     [Header("Shared Settings")]
     [SerializeField] private float fireRate = 0.2f;
@@ -48,6 +52,8 @@ public class PlayerWeapon : NetworkBehaviour
 
     void Awake()
     {
+        ApplyWeaponConfigDefaults();
+
         if (proceduralRecoil == null)
         {
             proceduralRecoil = GetComponent<ProceduralRecoil>();
@@ -64,6 +70,31 @@ public class PlayerWeapon : NetworkBehaviour
             {
                 shellEjector = GetComponentInChildren<ShellEjector>(true);
             }
+        }
+    }
+
+    void ApplyWeaponConfigDefaults()
+    {
+        WeaponConfig config = weaponConfigOverride != null ? weaponConfigOverride : GameConfigCatalog.Weapon;
+        if (config == null)
+        {
+            return;
+        }
+
+        // 仅当仍是预制体默认值时覆盖，避免覆盖 Inspector 上已调过的数值。
+        if (Mathf.Approximately(fireRate, 0.2f))
+        {
+            fireRate = config.FireRate;
+        }
+
+        if (Mathf.Approximately(fireRange, 100f))
+        {
+            fireRange = config.FireRange;
+        }
+
+        if (hitscanDamage == 20)
+        {
+            hitscanDamage = config.HitscanDamage;
         }
     }
 

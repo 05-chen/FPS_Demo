@@ -9,14 +9,14 @@ using UnityEngine;
 
 /// <summary>
 /// 菜单工具：全面检查 PlayerAnimatorController.controller 的状态机配置是否与代码约定一致。
-/// 纯只读校验，不会修改任何资产；用法：菜单 <b>Tools/Check Player Animator Setup</b>。
+/// 纯只读校验，不会修改任何资产；用法：菜单 <b>Tools/FPS/Validate/Player Animator Setup</b>。
 ///
 /// 校验范围：Parameters 类型、Base Layer 的 Locomotion 混合树、UpperBody 层的权重 /
 /// 混合模式 / AvatarMask 以及 Fire、Reload 两条往返连线。
 /// </summary>
 public static class AnimatorSetupChecker
 {
-    const string MenuPath = "Tools/Check Player Animator Setup";
+    const string MenuPath = "Tools/FPS/Validate/Player Animator Setup";
     const string ControllerFileName = "PlayerAnimatorController.controller";
     const string LogCategory = "AnimatorCheck";
 

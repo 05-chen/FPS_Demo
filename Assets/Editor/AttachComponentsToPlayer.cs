@@ -11,15 +11,15 @@ using static PlayerHierarchyUtils;
 /// <summary>
 /// 菜单工具：给选中的 Player 补挂核心组件，以及枪械挂载 / ADS 屏幕中心对齐节点。
 /// <list type="bullet">
-/// <item><b>Tools/Attach Components To Selected Player</b>：幂等补挂根组件 / Hitbox / 相机（原逻辑保留）</item>
-/// <item><b>Tools/Setup UpperBody Weapon and ADS</b>：补 WeaponSocket / GunMesh / SightPoint / CameraSightTarget，清洗 Layer&amp;Collider，接线 WeaponADS</item>
+/// <item><b>Tools/FPS/Build/Attach Components To Selected Player</b>：幂等补挂根组件 / Hitbox / 相机</item>
+/// <item><b>Tools/FPS/Build/Setup UpperBody Weapon and ADS</b>：补 WeaponSocket / GunMesh / SightPoint / CameraSightTarget，清洗 Layer&amp;Collider，接线 WeaponADS</item>
 /// </list>
 /// 公共装配逻辑在 <see cref="PlayerHierarchyUtils"/>。
 /// </summary>
 public static class AttachComponentsToPlayer
 {
-    const string MenuPath = "Tools/Attach Components To Selected Player";
-    const string SetupWeaponAdsMenuPath = "Tools/Setup UpperBody Weapon and ADS";
+    const string MenuPath = "Tools/FPS/Build/Attach Components To Selected Player";
+    const string SetupWeaponAdsMenuPath = "Tools/FPS/Build/Setup UpperBody Weapon and ADS";
     const string LogCategory = AttachLogCategory;
     const string WeaponAdsLogCategory = "SetupWeaponADS";
 
